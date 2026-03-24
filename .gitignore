@@ -1,0 +1,22 @@
+# checkpoints / models
+*.ckpt
+*.pt
+*.pth
+checkpoint/
+
+# data
+data/
+datasets/
+
+# python
+__pycache__/
+*.pyc
+
+# logs
+wandb/
+logs/
+
+# misc
+*.zip
+*.tar
+*.gz
