@@ -135,3 +135,60 @@ def save_eeg_features_from_path(eeg_path, store_path, identification):
     save_path = store_path + f"/features_{identification}.pt"
     torch.save(eeg_features, save_path)
     return save_path
+
+def classify_eeg(raw_eeg, num_classes, return_probs=False):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    rename_map = {
+        'Fp1': 'FP1',
+        'Fp2': 'FP2',
+        'T3': 'T7',
+        'T4': 'T8',
+        'T5': 'P7',
+        'T6': 'P8',
+        'Fz': 'FZ',
+        'Cz': 'CZ',
+        'Pz': 'PZ'
+    }
+
+    use_channels_names = [rename_map.get(ch, ch) for ch in raw_eeg.ch_names]
+
+    # ✅ IMPORTANT: num_classes must be > 0
+    model = EEGPTClassifier(
+        num_classes=num_classes,
+        in_channels=19,
+        img_size=[19, 2048],
+        patch_stride=64,
+        use_channels_names=use_channels_names,
+        use_chan_conv=False,
+        use_predictor=True
+    ).to(device)
+
+    ckpt_path = "checkpoint/eegpt_mcae_58chs_4s_large4E.ckpt"
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    state_dict = ckpt["state_dict"] if "state_dict" in ckpt else ckpt
+    model.load_state_dict(state_dict, strict=False)
+    model.eval()
+
+    # -------- Data prep
+    data = raw_eeg.get_data()
+    segments = segment_signal(data)
+    data_batch = torch.tensor(segments, dtype=torch.float32).to(device)
+
+    # -------- Forward pass (classification)
+    with torch.no_grad():
+        logits = model(data_batch)   # <-- instead of forward_features
+
+    # -------- Aggregate over segments
+    logits = logits.mean(dim=0)
+
+    if return_probs:
+        probs = torch.softmax(logits, dim=-1)
+        return probs.cpu()
+
+    pred = torch.argmax(logits, dim=-1)
+    return pred.item()
+
+def classify_eeg_from_path(eeg_path, num_classes):
+    raw = mne.io.read_raw_eeglab(eeg_path, preload=True)
+    return classify_eeg(raw, num_classes)
