@@ -20,4 +20,3 @@ logs/
 *.zip
 *.tar
 *.gz
-*.npz

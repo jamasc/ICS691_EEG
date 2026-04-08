@@ -391,7 +391,7 @@ def get_biomarkers_per_segment(raw_eeg, window_size=2048, stride=2048):
 
         # Add mean coherence for this segment (sample a few pairs
         # to keep it fast — full pairwise is expensive per-segment)
-        # We use 5 representative pairs spanning the scalp
+        # Use 5 representative pairs spanning the scalp
         if n_channels >= 2:
             coh_vals = []
             # Sample pairs: first-last, and evenly spaced

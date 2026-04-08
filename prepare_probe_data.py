@@ -3,18 +3,22 @@ prepare_probe_data.py
 =====================
 Two-step process for preparing probe training data:
 
-  Step 1 (Zelda, laptop):  Pre-compute biomarker labels (Y)
-  Step 2 (Mark, KOA):      Compute EEGPT embeddings (X)
-  Step 3 (Zelda, laptop):  Combine and train probes
+  Step 1 (Zelda):  Pre-compute biomarker labels (Y)
+  Step 2 (Mark, w/KOA):      Compute EEGPT embeddings (X)
+  Step 3 (Zelda):  Combine and train probes
 
 Usage:
+    # Get biomarker labels:
+    python prepare_probe_data.py --step1
 
     # Mark runs this on KOA:
     python prepare_probe_data.py --step2
 
-    # I'll (Zelda) train probes with embeddings file:
+    # Trains probes using the embeddings file:
     python prepare_probe_data.py --step3
 
+    # Or train probes directly with train_probes.py:
+    python train_probes.py --train --data-file probe_training_data.npz
 """
 
 import os
@@ -39,7 +43,7 @@ COMBINED_FILE  = "probe_training_data.npz"   # Combined (Step 3)
 
 
 # =============================================================================
-# STEP 1: Pre-compute biomarker labels (Zelda, no GPU)
+# STEP 1: Pre-compute biomarker labels 
 # =============================================================================
 
 def step1_compute_biomarkers(npz_path=KAGGLE_NPZ,
@@ -68,7 +72,6 @@ def step1_compute_biomarkers(npz_path=KAGGLE_NPZ,
     all_biomarkers = []
     all_labels = []
     all_subject_ids = []
-    all_chunks = []
     feature_names = None
 
     subjects = dataset["subjects"]
@@ -111,11 +114,9 @@ def step1_compute_biomarkers(npz_path=KAGGLE_NPZ,
             all_biomarkers.append(mean_vals)
             all_labels.append(diag)
             all_subject_ids.append(subj_key)
-            all_chunks.append(chunks[i])
 
     # Convert to arrays
     Y = np.array(all_biomarkers, dtype=np.float32)
-    chunks_array = np.stack(all_chunks)
 
     print(f"\n{'='*50}")
     print(f"Step 1 complete!")
@@ -124,7 +125,6 @@ def step1_compute_biomarkers(npz_path=KAGGLE_NPZ,
     print(f"  Subjects: {count}")
     print(f"  Labels: { {l: all_labels.count(l) for l in set(all_labels)} }")
     print(f"  Feature names: {feature_names}")
-    print(f"  Chunks array shape: {chunks_array.shape}")
     print(f"\nSaved to: {output_path}")
     print(f"{'='*50}")
 
@@ -134,35 +134,63 @@ def step1_compute_biomarkers(npz_path=KAGGLE_NPZ,
         feature_names=feature_names,
         labels=all_labels,
         subject_ids=all_subject_ids,
-        chunks=chunks_array,   # Mark will need these to run EEGPT on
     )
 
     return Y, feature_names
 
 
 # =============================================================================
-# STEP 2: Compute EEGPT embeddings (Mark, GPU)
+# STEP 2: Compute EEGPT embeddings (Mark, KOA)
 # =============================================================================
 
 def step2_compute_embeddings(biomarker_file=BIOMARKER_FILE,
-                             output_path=EMBEDDING_FILE):
+                             output_path=EMBEDDING_FILE,
+                             kaggle_npz_path=KAGGLE_NPZ):
     """
-    Mark runs this on the GPU. It loads the chunks that Zelda saved
-    and runs each one through EEGPT.
+    Mark runs this on KOA. It loads the Kaggle dataset directly,
+    builds the same chunks, and runs them through EEGPT.
 
     Requires:
+        - Kaggle dataset .npz file (download with kagglehub)
         - EEGPT checkpoint at checkpoint/eegpt_mcae_58chs_4s_large4E.ckpt
-        - GPU recommended
     """
     import torch
     from EEGPT_mcae_finetune import EEGPTClassifier
 
-    # Load the chunks Zelda prepared
-    data = np.load(biomarker_file, allow_pickle=True)
-    chunks = data["chunks"]     # (n_chunks, 2048, 19)
-    labels = data["labels"]
+    # Load biomarker file to get the subject order and labels
+    bio_data = np.load(biomarker_file, allow_pickle=True)
+    subject_ids = list(bio_data["subject_ids"])
+    labels = list(bio_data["labels"])
 
-    print(f"Loaded {chunks.shape[0]} chunks from {biomarker_file}")
+    # Load the Kaggle dataset and rebuild the same chunks
+    dataset = load_dataset(kaggle_npz_path)
+
+    # Rebuild chunks in the same order as step 1
+    # Group by subject to match the biomarker ordering
+    seen_subjects = []
+    for sid in subject_ids:
+        if sid not in seen_subjects:
+            seen_subjects.append(sid)
+
+    all_chunks = []
+    chunk_labels = []
+    for subj_key in seen_subjects:
+        chunks, diag = get_subject_chunks(dataset, subj_key)
+        if chunks.size == 0:
+            continue
+        all_chunks.append(chunks)
+        chunk_labels.extend([diag] * chunks.shape[0])
+
+    chunks = np.vstack(all_chunks)  # (n_chunks, 2048, 19)
+
+    # Verify counts match
+    assert chunks.shape[0] == len(subject_ids), (
+        f"Chunk count mismatch: got {chunks.shape[0]} chunks but "
+        f"biomarker file has {len(subject_ids)} entries. "
+        f"Make sure you're using the same Kaggle dataset."
+    )
+
+    print(f"Loaded {chunks.shape[0]} chunks matching biomarker labels")
 
     # Transpose to channels-first for EEGPT: (n, 2048, 19) → (n, 19, 2048)
     chunks_cf = np.transpose(chunks, (0, 2, 1))
@@ -232,7 +260,7 @@ def step2_compute_embeddings(biomarker_file=BIOMARKER_FILE,
 
 
 # =============================================================================
-# STEP 3: Combine and save (Zelda, no GPU)
+# STEP 3: Combine and save 
 # =============================================================================
 
 def step3_combine(biomarker_file=BIOMARKER_FILE,
@@ -310,7 +338,7 @@ if __name__ == "__main__":
         print("STEP 2: Computing EEGPT embeddings...")
         print("(Run this on a machine with GPU)")
         print()
-        step2_compute_embeddings()
+        step2_compute_embeddings(kaggle_npz_path=args.npz_path)
 
     elif args.step3:
         print("STEP 3: Combining biomarkers + embeddings...")
