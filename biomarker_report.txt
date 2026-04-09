@@ -1,0 +1,28 @@
+=== EEG Biomarker Report: Subject unknown ===
+
+--- Power Analysis ---
+  Delta power:           0.0139
+  Theta power:           0.0156
+  Alpha power:           0.0170
+  Beta power:            0.0748
+  Theta/Alpha ratio:     0.9500  (elevated >1.5 suggests AD)
+  Slowing index:         0.3218  (elevated = more slow-wave activity)
+  Alpha relative power:  0.1396
+  Theta relative power:  0.1286
+
+--- Spectral Shape ---
+  Spectral centroid:     15.34 Hz  (lower = brain slowing)
+  Spectral peak:         15.45 Hz  (healthy ~10 Hz, AD <8 Hz)
+  Spectral rolloff:      25.66 Hz
+  Median frequency:      15.32 Hz
+
+--- Complexity & Entropy ---
+  Spectral entropy:      0.9856  (lower = less complex = AD-like)
+  Shannon entropy:       5.8216
+  Tsallis entropy:       0.9813
+
+--- Connectivity ---
+  Mean alpha coherence:  0.1179  (lower = reduced connectivity = AD-like)
+
+--- AD Indicator Summary ---
+  * REDUCED alpha coherence

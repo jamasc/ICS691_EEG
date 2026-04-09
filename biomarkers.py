@@ -9,14 +9,19 @@ with the full set of 31 features from the LEAD paper appendix.
 Integration with existing repo:
   - Takes MNE Raw objects as input (same as utility.py)
   - Works with .set files loaded via mne.io.read_raw_eeglab()
-  - Uses segment_signal() from utility.py for consistency
-  - Returns results as dicts/DataFrames for easy use downstream
+  - Works with numpy arrays from the Kaggle dataset
+  - Returns results as dicts for easy use downstream
 
-Dependencies (add to your environment):
-    pip install numpy scipy mne pandas
+For complete_pipeline.ipynb, call:
+  - extract_biomarkers(eeg_path) for .set files
+  - extract_biomarkers_from_array(eeg_data) for numpy arrays
+
+Dependencies:
+    pip install numpy scipy mne
 
 """
 
+import os
 import numpy as np
 from scipy import signal, stats
 
@@ -138,27 +143,19 @@ def _spectral_shape_features(sig, sfreq):
     if total == 0:
         total = 1e-10
 
-    # Spectral centroid — "center of gravity" of frequencies
-    # Shifts LOWER in AD (brain slowing)
     centroid = float(np.sum(f * p) / total)
 
-    # Spectral rolloff — freq below which 85% of power sits
     cum = np.cumsum(p)
     idx_85 = min(np.searchsorted(cum, 0.85 * total), len(f) - 1)
     rolloff = float(f[idx_85])
 
-    # Spectral peak — dominant frequency
-    # Healthy: ~10 Hz (alpha). AD: shifts to 8 Hz or below
     peak = float(f[np.argmax(p)])
 
-    # Average magnitude
     avg_mag = float(np.mean(p))
 
-    # Median frequency — splits power in half
     idx_50 = min(np.searchsorted(cum, 0.5 * total), len(f) - 1)
     med_freq = float(f[idx_50])
 
-    # Amplitude modulation — how much signal strength varies over time
     analytic = signal.hilbert(sig)
     envelope = np.abs(analytic)
     env_mean = np.mean(envelope)
@@ -186,19 +183,16 @@ def _entropy_features(sig, sfreq):
     p = psd[mask]
     p_sum = np.sum(p)
     p_norm = p / p_sum if p_sum > 0 else np.ones_like(p) / len(p)
-    p_norm = p_norm[p_norm > 0]   # avoid log(0)
+    p_norm = p_norm[p_norm > 0]
 
     n = len(p_norm)
 
-    # Spectral entropy — how "flat" the spectrum is (0 to 1)
     sp_ent = float(-np.sum(p_norm * np.log2(p_norm)))
     if n > 1:
         sp_ent /= np.log2(n)
 
-    # Shannon entropy — classic information measure (not normalized)
     shannon = float(-np.sum(p_norm * np.log2(p_norm)))
 
-    # Tsallis entropy — generalized entropy (q=2)
     q = 2
     tsallis = float((1 - np.sum(p_norm ** q)) / (q - 1))
 
@@ -217,16 +211,6 @@ def compute_phase_coherence(ch1, ch2, sfreq, band="alpha"):
     """
     Compute magnitude-squared coherence between two channels,
     averaged over a frequency band.
-
-    Parameters
-    ----------
-    ch1, ch2 : array, shape (n_samples,)
-    sfreq : float
-    band : str — which band to average coherence over
-
-    Returns
-    -------
-    float — average coherence (0 to 1)
     """
     low, high = BANDS[band]
     nperseg = min(int(2 * sfreq), len(ch1))
@@ -244,17 +228,6 @@ def compute_phase_coherence(ch1, ch2, sfreq, band="alpha"):
 def compute_channel_features(eeg_signal, sfreq):
     """
     Compute all 30 single-channel biomarkers for one channel.
-
-    Parameters
-    ----------
-    eeg_signal : array, shape (n_samples,)
-        Preprocessed voltage values from one EEG channel.
-    sfreq : float
-        Sampling frequency (e.g., 500 Hz).
-
-    Returns
-    -------
-    dict — {feature_name: value} for all 30 features
     """
     features = {}
     features.update(_statistical_features(eeg_signal))
@@ -265,31 +238,16 @@ def compute_channel_features(eeg_signal, sfreq):
 
 
 # =============================================================================
-# MAIN ENTRY POINT: get_biomarkers() — drop-in replacement for utility.py
+# CORE: Compute biomarkers from MNE Raw object
 # =============================================================================
 
 def get_biomarkers(raw_eeg):
     """
     Compute all 31 LEAD biomarker features from an MNE Raw object.
-
-    This replaces the basic get_biomarkers() in utility.py with the
-    complete set of 31 features from the LEAD paper.
-
-    Parameters
-    ----------
-    raw_eeg : mne.io.Raw
-        Loaded and preprocessed EEG (e.g., from read_raw_eeglab).
-
-    Returns
-    -------
-    dict with keys:
-        "per_channel" : dict  — {channel_name: {feature: value, ...}}
-        "coherence"   : dict  — {"ch1-ch2": coherence_value, ...}
-        "summary"     : dict  — mean across channels for each feature
     """
-    data = raw_eeg.get_data()          # shape: (n_channels, n_samples)
-    sfreq = raw_eeg.info["sfreq"]      # e.g. 500 Hz
-    ch_names = raw_eeg.ch_names        # e.g. ['Fp1', 'Fp2', ...]
+    data = raw_eeg.get_data()
+    sfreq = raw_eeg.info["sfreq"]
+    ch_names = raw_eeg.ch_names
     n_channels = data.shape[0]
 
     results = {
@@ -298,12 +256,10 @@ def get_biomarkers(raw_eeg):
         "summary": {},
     }
 
-    # --- Per-channel features (30 features × n_channels) ---
     for i in range(n_channels):
         ch_features = compute_channel_features(data[i], sfreq)
         results["per_channel"][ch_names[i]] = ch_features
 
-    # --- Phase coherence between all channel pairs ---
     for i in range(n_channels):
         for j in range(i + 1, n_channels):
             pair = f"{ch_names[i]}-{ch_names[j]}"
@@ -311,19 +267,16 @@ def get_biomarkers(raw_eeg):
                 data[i], data[j], sfreq, band="alpha"
             )
 
-    # --- Summary: mean of each feature across channels ---
     feature_names = list(results["per_channel"][ch_names[0]].keys())
     for feat in feature_names:
         vals = [results["per_channel"][ch][feat] for ch in ch_names]
         results["summary"][feat] = float(np.mean(vals))
 
-    # Add mean coherence to summary
     if results["coherence"]:
         results["summary"]["phase_coherence"] = float(
             np.mean(list(results["coherence"].values()))
         )
 
-    # Add slowing index to summary (for backward compat with utility.py)
     s = results["summary"]
     slow = s.get("delta_power", 0) + s.get("theta_power", 0)
     fast = s.get("alpha_power", 0) + s.get("beta_power", 0)
@@ -346,29 +299,9 @@ def get_biomarkers_from_path(eeg_path):
 def get_biomarkers_per_segment(raw_eeg, window_size=2048, stride=2048):
     """
     Compute biomarkers for each segment of the EEG.
-
-    This matches the segment_signal() function in utility.py so that
-    each segment's biomarker values line up with the corresponding
-    EEGPT embedding from get_eeg_features().
-
-    Parameters
-    ----------
-    raw_eeg : mne.io.Raw
-        Loaded EEG data.
-    window_size : int
-        Samples per segment (default 2048, matching utility.py).
-    stride : int
-        Step between segments (default 2048 = no overlap).
-
-    Returns
-    -------
-    segment_features : list of dict
-        One dict per segment, each containing the mean feature values
-        across all channels for that segment.
     """
-    data = raw_eeg.get_data()          # (n_channels, n_samples)
+    data = raw_eeg.get_data()
     sfreq = raw_eeg.info["sfreq"]
-    ch_names = raw_eeg.ch_names
     n_channels, n_samples = data.shape
 
     segment_features = []
@@ -376,29 +309,24 @@ def get_biomarkers_per_segment(raw_eeg, window_size=2048, stride=2048):
     for start in range(0, n_samples - window_size + 1, stride):
         seg = data[:, start:start + window_size]
 
-        # Compute features for each channel in this segment
         all_ch_features = []
         for ch_idx in range(n_channels):
             ch_feats = compute_channel_features(seg[ch_idx], sfreq)
             all_ch_features.append(ch_feats)
 
-        # Average across channels to get one value per feature
         feature_names = list(all_ch_features[0].keys())
         mean_features = {}
         for feat in feature_names:
             vals = [ch[feat] for ch in all_ch_features]
             mean_features[feat] = float(np.mean(vals))
 
-        # Add mean coherence for this segment (sample a few pairs
-        # to keep it fast — full pairwise is expensive per-segment)
-        # Use 5 representative pairs spanning the scalp
         if n_channels >= 2:
             coh_vals = []
-            # Sample pairs: first-last, and evenly spaced
             pairs = [(0, n_channels - 1)]
             if n_channels >= 4:
                 step = max(1, n_channels // 4)
-                pairs += [(i, i + step) for i in range(0, n_channels - step, step)]
+                pairs += [(i, i + step)
+                          for i in range(0, n_channels - step, step)]
             for i, j in pairs:
                 coh_vals.append(
                     compute_phase_coherence(seg[i], seg[j], sfreq, "alpha")
@@ -413,24 +341,11 @@ def get_biomarkers_per_segment(raw_eeg, window_size=2048, stride=2048):
 
 
 # =============================================================================
-# CONVERSION HELPERS — for linear probing
+# CONVERSION HELPERS
 # =============================================================================
 
 def features_to_array(segment_features):
-    """
-    Convert list of feature dicts to a numpy array + feature names.
-
-    Parameters
-    ----------
-    segment_features : list of dict
-        Output from get_biomarkers_per_segment().
-
-    Returns
-    -------
-    feature_names : list of str
-    feature_array : array, shape (n_segments, n_features)
-        Ready to use as Y labels for linear probe training.
-    """
+    """Convert list of feature dicts to a numpy array + feature names."""
     feature_names = list(segment_features[0].keys())
     rows = []
     for seg in segment_features:
@@ -439,22 +354,12 @@ def features_to_array(segment_features):
 
 
 def biomarkers_to_dataframe(results):
-    """
-    Convert get_biomarkers() output to a pandas DataFrame.
-
-    Useful for exploration, CSV export, or passing to the LLM.
-    Requires pandas to be installed.
-
-    Returns
-    -------
-    pd.DataFrame — one row per channel, columns are feature names.
-    """
+    """Convert get_biomarkers() output to a pandas DataFrame."""
     try:
         import pandas as pd
         return pd.DataFrame(results["per_channel"]).T
     except ImportError:
         print("pandas is not installed — returning raw dict instead.")
-        print("Install with: pip install pandas")
         return results["per_channel"]
 
 
@@ -468,19 +373,6 @@ def format_for_llm(results, subject_id="unknown", diagnosis_prob=None):
 
     This creates the "structured table" that goes into the final
     LLM reasoning stage of the pipeline.
-
-    Parameters
-    ----------
-    results : dict
-        Output from get_biomarkers().
-    subject_id : str
-        Patient identifier.
-    diagnosis_prob : float or None
-        AD probability from EEGPT classifier (0–1), if available.
-
-    Returns
-    -------
-    str — formatted text block ready to include in an LLM prompt.
     """
     s = results["summary"]
 
@@ -549,6 +441,140 @@ def format_for_llm(results, subject_id="unknown", diagnosis_prob=None):
 
 
 # =============================================================================
+# PIPELINE ENTRY POINT — one function to call from complete_pipeline.ipynb
+# =============================================================================
+
+def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
+                       diagnosis_prob=None, save_to=None):
+    """
+    One-liner biomarker extraction. Works with any input type.
+
+    In the notebook, just call:
+        llm_text = extract_biomarkers(raw)
+        llm_text = extract_biomarkers("patient.set")
+        llm_text = extract_biomarkers(numpy_array, sfreq=128)
+        llm_text = extract_biomarkers(raw, save_to="report.txt")
+
+    Parameters
+    ----------
+    eeg_input : str, mne.io.BaseRaw, or numpy array
+        - str: path to a .set/.edf/.fif file (loads automatically)
+        - mne.io.BaseRaw: raw EEG object (e.g., from LJ's preprocessing)
+        - numpy array shape (n_channels, n_samples): raw voltage data
+    sfreq : float
+        Sampling rate in Hz. Only needed for numpy array input.
+        Default 128 (Kaggle dataset). Ignored for Raw/.set inputs.
+    subject_id : str, optional
+        Patient identifier for the report. Auto-detected from filename
+        if loading from a path.
+    diagnosis_prob : float, optional
+        AD probability from EEGPT (0-1). Added to the report if provided.
+    save_to : str, optional
+        If provided, saves the LLM report to this file path.
+        Example: "reports/patient_001.txt"
+
+    Returns
+    -------
+    str — the formatted LLM report text (ready to send to Skylar's LLM)
+    """
+    import mne
+
+    # --- Handle different input types ---
+
+    if isinstance(eeg_input, str):
+        # Input is a file path
+        raw = mne.io.read_raw(eeg_input, preload=True)
+        data = raw.get_data()
+        sfreq = raw.info["sfreq"]
+        channel_names = raw.ch_names
+        if subject_id is None:
+            subject_id = os.path.splitext(os.path.basename(eeg_input))[0]
+
+    elif isinstance(eeg_input, mne.io.BaseRaw):
+        # Input is an MNE Raw object (from LJ's preprocessing)
+        data = eeg_input.get_data()
+        sfreq = eeg_input.info["sfreq"]
+        channel_names = eeg_input.ch_names
+        if subject_id is None:
+            subject_id = "unknown"
+
+    elif isinstance(eeg_input, np.ndarray):
+        # Input is a numpy array (from Kaggle dataset)
+        data = eeg_input
+        channel_names = [
+            'Fp1', 'Fp2', 'F7', 'F3', 'Fz', 'F4', 'F8',
+            'T3', 'C3', 'Cz', 'C4', 'T4',
+            'T5', 'P3', 'Pz', 'P4', 'T6',
+            'O1', 'O2'
+        ][:data.shape[0]]
+        if subject_id is None:
+            subject_id = "unknown"
+
+    else:
+        raise ValueError(
+            f"eeg_input must be a file path (str), MNE Raw object, "
+            f"or numpy array. Got: {type(eeg_input)}"
+        )
+
+    # --- Compute biomarkers ---
+
+    n_channels = data.shape[0]
+    results = {
+        "per_channel": {},
+        "coherence": {},
+        "summary": {},
+    }
+
+    # Per-channel features
+    for i in range(n_channels):
+        ch_name = channel_names[i] if i < len(channel_names) else f"Ch{i}"
+        results["per_channel"][ch_name] = compute_channel_features(
+            data[i], sfreq
+        )
+
+    # Phase coherence between all channel pairs
+    for i in range(n_channels):
+        for j in range(i + 1, n_channels):
+            ch_i = channel_names[i] if i < len(channel_names) else f"Ch{i}"
+            ch_j = channel_names[j] if j < len(channel_names) else f"Ch{j}"
+            results["coherence"][f"{ch_i}-{ch_j}"] = compute_phase_coherence(
+                data[i], data[j], sfreq, band="alpha"
+            )
+
+    # Summary: mean across channels
+    first_ch = list(results["per_channel"].keys())[0]
+    feat_names = list(results["per_channel"][first_ch].keys())
+    for feat in feat_names:
+        vals = [results["per_channel"][ch][feat]
+                for ch in results["per_channel"]]
+        results["summary"][feat] = float(np.mean(vals))
+
+    if results["coherence"]:
+        results["summary"]["phase_coherence"] = float(
+            np.mean(list(results["coherence"].values()))
+        )
+
+    # Slowing index
+    s = results["summary"]
+    slow = s.get("delta_power", 0) + s.get("theta_power", 0)
+    fast = s.get("alpha_power", 0) + s.get("beta_power", 0)
+    s["slowing_index"] = slow / fast if fast > 0 else float("inf")
+
+    # --- Format for LLM ---
+    llm_text = format_for_llm(results, subject_id=subject_id,
+                               diagnosis_prob=diagnosis_prob)
+
+    # --- Save to file if requested ---
+    if save_to:
+        os.makedirs(os.path.dirname(save_to) or ".", exist_ok=True)
+        with open(save_to, "w") as f:
+            f.write(llm_text)
+        print(f"Report saved to: {save_to}")
+
+    return llm_text
+
+
+# =============================================================================
 # DEMO / TESTING
 # =============================================================================
 
@@ -557,14 +583,13 @@ if __name__ == "__main__":
     print("Biomarker Module — Integration Test")
     print("=" * 60)
 
-    # Create synthetic EEG to test (no real data file needed)
+    # Create synthetic EEG to test
     sfreq = 500
     duration = 10
     n_samples = sfreq * duration
     t = np.linspace(0, duration, n_samples, endpoint=False)
     n_channels = 19
 
-    # Simulate 19-channel "healthy" EEG
     np.random.seed(42)
     data = np.zeros((n_channels, n_samples))
     for ch in range(n_channels):
@@ -574,7 +599,22 @@ if __name__ == "__main__":
             + 0.5 * np.random.randn(n_samples)
         )
 
-    # Wrap in MNE Raw object (mimics what read_raw_eeglab returns)
+    # Test 1: numpy array input (Kaggle data path)
+    print("\n1. Testing with numpy array...")
+    llm_text = extract_biomarkers(data, sfreq=sfreq, subject_id="TEST-001",
+                                   diagnosis_prob=0.72)
+    print(llm_text)
+
+    # Test 2: save to file
+    print("\n2. Testing save_to file...")
+    extract_biomarkers(data, sfreq=sfreq, subject_id="TEST-001",
+                       save_to="test_report.txt")
+    with open("test_report.txt") as f:
+        print(f"   File contents: {len(f.read())} characters")
+    os.remove("test_report.txt")
+
+    # Test 3: MNE Raw object (LJ's preprocessing path)
+    print("\n3. Testing with MNE Raw object...")
     import mne
     ch_names = [
         'Fp1', 'Fp2', 'F7', 'F3', 'Fz', 'F4', 'F8',
@@ -584,43 +624,9 @@ if __name__ == "__main__":
     ]
     info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types='eeg')
     raw = mne.io.RawArray(data, info, verbose=False)
-
-    # --- Test get_biomarkers() ---
-    print("\n1. Testing get_biomarkers(raw_eeg)...")
-    results = get_biomarkers(raw)
-    print(f"   Channels processed: {len(results['per_channel'])}")
-    print(f"   Features per channel: {len(results['per_channel']['Fp1'])}")
-    print(f"   Coherence pairs: {len(results['coherence'])}")
-    print(f"\n   Summary (mean across channels):")
-    for k, v in results["summary"].items():
-        print(f"     {k:30s} = {v:.6f}")
-
-    # --- Test get_biomarkers_per_segment() ---
-    print("\n2. Testing get_biomarkers_per_segment()...")
-    seg_feats = get_biomarkers_per_segment(raw, window_size=2048, stride=2048)
-    print(f"   Number of segments: {len(seg_feats)}")
-    print(f"   Features per segment: {len(seg_feats[0])}")
-    names, arr = features_to_array(seg_feats)
-    print(f"   Feature array shape: {arr.shape}")
-    print(f"   (This is your Y matrix for linear probe training)")
-
-    # --- Test format_for_llm() ---
-    print("\n3. Testing format_for_llm()...")
-    llm_text = format_for_llm(results, subject_id="TEST-001", diagnosis_prob=0.72)
-    print(llm_text)
-
-    # --- Test DataFrame export ---
-    print("\n4. Testing biomarkers_to_dataframe()...")
-    df = biomarkers_to_dataframe(results)
-    try:
-        # If pandas is available, df is a DataFrame
-        print(f"   DataFrame shape: {df.shape}")
-        print(f"   Columns: {list(df.columns[:5])}... ({len(df.columns)} total)")
-    except AttributeError:
-        # If pandas is not available, df is a plain dict
-        print(f"   Channels: {len(df)}")
-        print(f"   (pandas not installed — returned dict instead)")
+    llm_text = extract_biomarkers(raw, subject_id="RAW-TEST")
+    print(f"   Got report: {len(llm_text)} characters")
 
     print("\n" + "=" * 60)
-    print("All tests passed!")
+    print("All tests completed!")
     print("=" * 60)
