@@ -1,3 +1,14 @@
+import torch
+from EEGPT_mcae_finetune import EEGPTClassifier
+import numpy as np
+
+def segment_signal(data, window_size=2048, stride=1024):
+    segments = []
+    for start in range(0, data.shape[1] - window_size + 1, stride):
+        seg = data[:, start:start+window_size]
+        segments.append(seg)
+    return np.stack(segments)
+    
 def extract_features(raw_eeg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -13,7 +24,7 @@ def extract_features(raw_eeg):
         'Pz': 'PZ'
     }
 
-    raw_eeg = raw_eeg.copy().pick(['Cz'])
+    raw_eeg = raw_eeg.copy().pick(['CZ'])
     
     use_channels_names = [rename_map.get(ch, ch) for ch in raw_eeg.ch_names]
 
@@ -27,7 +38,7 @@ def extract_features(raw_eeg):
         use_predictor=True
     )
     model = model.to(device)
-    ckpt_path = "checkpoint/eegpt_mcae_58chs_4s_large4E.ckpt"
+    ckpt_path = "../eeg/checkpoint/eegpt_mcae_58chs_4s_large4E.ckpt"
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     state_dict = ckpt["state_dict"] if "state_dict" in ckpt else ckpt
     model.load_state_dict(state_dict, strict=False)
