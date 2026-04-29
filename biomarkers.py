@@ -38,6 +38,9 @@ BANDS = {
 # Equipment-independent features — safe to use across any dataset/equipment
 # These are ratios, percentages, or frequency-based measures that don't
 # depend on amplifier gain or electrode impedance.
+# NOTE: PDF and IAF are excluded because they require properly bandpass-
+# filtered data to be reliable. They're still computed and shown in the
+# overview, but won't trigger flags during screening.
 NORMALIZED_FEATURES = [
     "theta_alpha_ratio",
     "theta_relative_power",
@@ -47,8 +50,6 @@ NORMALIZED_FEATURES = [
     "spectral_centroid",
     "spectral_peak",
     "median_frequency",
-    "iaf",
-    "pdf",
     "spectral_entropy",
     "shannon_entropy",
     "tsallis_entropy",
