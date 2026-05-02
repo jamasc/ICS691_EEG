@@ -1320,6 +1320,295 @@ def features_to_array(segment_features):
 
 
 # =============================================================================
+# FAST EXTRACTION — for classifier training (numerical only, no flagging)
+# =============================================================================
+
+def _channel_features_fast(sig, sfreq):
+    """
+    All single-channel features computed from a single PSD pass.
+
+    The slow version calls _compute_psd separately inside _power_features,
+    _spectral_shape_features, _entropy_features, compute_iaf, and compute_pdf
+    (5 PSD computations per channel). This version computes the PSD once
+    and reuses it for every spectral feature.
+
+    Returns dict of feature_name -> value (no formatting, no flagging).
+    """
+    # --- One PSD pass for everything spectral ---
+    nperseg = min(int(2 * sfreq), len(sig))
+    freqs, psd = signal.welch(
+        sig, fs=sfreq, nperseg=nperseg, noverlap=nperseg // 2,
+    )
+    freq_res = freqs[1] - freqs[0]
+
+    # --- Statistical (no PSD needed) ---
+    # Compute moments directly in numpy — much faster than scipy.stats
+    # for repeated calls. Matches scipy defaults: skew/kurtosis are biased
+    # (population) estimators, kurtosis is Fisher's (excess, normal=0).
+    sig_mean = float(np.mean(sig))
+    centered = sig - sig_mean
+    var = float(np.mean(centered ** 2))
+    sd = float(np.sqrt(var)) if var > 0 else 0.0
+
+    if sd > 0:
+        m3 = float(np.mean(centered ** 3))
+        m4 = float(np.mean(centered ** 4))
+        skewness = m3 / (sd ** 3)
+        kurtosis = m4 / (var ** 2) - 3.0
+    else:
+        skewness = 0.0
+        kurtosis = 0.0
+
+    q25, q75 = np.percentile(sig, [25, 75])
+
+    feats = {
+        "mean":     sig_mean,
+        "variance": var,
+        "skewness": skewness,
+        "kurtosis": kurtosis,
+        "std":      sd,
+        "iqr":      float(q75 - q25),
+        "max":      float(np.max(sig)),
+        "min":      float(np.min(sig)),
+        "mean_abs": float(np.mean(np.abs(sig))),
+        "median":   float(np.median(sig)),
+    }
+
+    # --- Band powers (cached PSD) ---
+    def _bp(low, high):
+        m = (freqs >= low) & (freqs < high)
+        return float(np.sum(psd[m]) * freq_res)
+
+    delta_p = _bp(*BANDS["delta"])
+    theta_p = _bp(*BANDS["theta"])
+    alpha_p = _bp(*BANDS["alpha"])
+    beta_p  = _bp(*BANDS["beta"])
+    total_p = delta_p + theta_p + alpha_p + beta_p
+    safe_total = total_p if total_p > 0 else 1e-10
+    safe_alpha = alpha_p if alpha_p > 0 else 1e-10
+    safe_beta  = beta_p  if beta_p  > 0 else 1e-10
+
+    feats.update({
+        "delta_power":          delta_p,
+        "theta_power":          theta_p,
+        "alpha_power":          alpha_p,
+        "beta_power":           beta_p,
+        "total_power":          total_p,
+        "theta_alpha_ratio":    theta_p / safe_alpha,
+        "alpha_beta_ratio":     alpha_p / safe_beta,
+        "delta_relative_power": delta_p / safe_total,
+        "theta_relative_power": theta_p / safe_total,
+        "alpha_relative_power": alpha_p / safe_total,
+        "beta_relative_power":  beta_p  / safe_total,
+    })
+
+    # --- Spectral shape (cached PSD) ---
+    mask = (freqs >= 0.5) & (freqs <= 30)
+    f = freqs[mask]
+    p = psd[mask]
+    p_total = np.sum(p)
+    if p_total <= 0:
+        p_total = 1e-10
+
+    centroid = float(np.sum(f * p) / p_total)
+    cum = np.cumsum(p)
+    idx_85 = min(np.searchsorted(cum, 0.85 * p_total), len(f) - 1)
+    rolloff = float(f[idx_85])
+    peak = float(f[np.argmax(p)])
+    avg_mag = float(np.mean(p))
+    idx_50 = min(np.searchsorted(cum, 0.5 * p_total), len(f) - 1)
+    med_freq = float(f[idx_50])
+
+    # Hilbert envelope still needs the time-domain signal
+    analytic = signal.hilbert(sig)
+    envelope = np.abs(analytic)
+    env_mean = np.mean(envelope)
+    amp_mod = float(np.std(envelope) / env_mean) if env_mean > 0 else 0.0
+
+    feats.update({
+        "spectral_centroid":    centroid,
+        "spectral_rolloff":     rolloff,
+        "spectral_peak":        peak,
+        "average_magnitude":    avg_mag,
+        "median_frequency":     med_freq,
+        "amplitude_modulation": amp_mod,
+    })
+
+    # --- Entropy (cached PSD) ---
+    p_norm = p / p_total
+    p_norm = p_norm[p_norm > 0]
+    n = len(p_norm)
+    sp_ent = float(-np.sum(p_norm * np.log2(p_norm)))
+    if n > 1:
+        sp_ent /= np.log2(n)
+    shannon = float(-np.sum(p_norm * np.log2(p_norm)))
+    tsallis = float(1 - np.sum(p_norm ** 2))  # q=2 form
+
+    feats.update({
+        "spectral_entropy": sp_ent,
+        "shannon_entropy":  shannon,
+        "tsallis_entropy":  tsallis,
+    })
+
+    # --- IAF (cached PSD) ---
+    alpha_mask = (freqs >= 8) & (freqs <= 12)
+    alpha_freqs = freqs[alpha_mask]
+    alpha_psd = psd[alpha_mask]
+    if len(alpha_psd) == 0 or np.sum(alpha_psd) < 1e-10:
+        feats["iaf"] = float("nan")
+    else:
+        feats["iaf"] = float(
+            np.sum(alpha_freqs * alpha_psd) / np.sum(alpha_psd)
+        )
+
+    # --- PDF (slow/fast power ratio, reuses band powers) ---
+    fast_p = alpha_p + beta_p
+    if fast_p > 1e-10:
+        feats["pdf"] = min(float((delta_p + theta_p) / fast_p), 100.0)
+    else:
+        feats["pdf"] = 100.0
+
+    # --- LZC (time-domain, can't reuse PSD) ---
+    feats["lzc"] = compute_lzc(sig)
+
+    return feats
+
+
+def extract_features_fast(eeg_input, sfreq=128, mode="regional",
+                          channel_names=None, skip_lzc=False,
+                          return_names=True):
+    """
+    Fast numerical-only feature extraction for classifier training.
+
+    Compared to extract_biomarkers():
+      - Computes PSD once per channel
+      - Skips reference comparison and flagging entirely
+      - Skips posterior coherence (171 channel-pairs per segment)
+      - Skips text formatting and report generation
+      - Returns numpy array, not formatted string
+
+    Parameters
+    ----------
+    eeg_input : ndarray
+        Either (n_channels, n_samples) for a single segment, or
+        (n_segments, n_channels, n_samples) for many segments.
+    sfreq : float
+        Sampling rate in Hz. Default 128 (Kaggle dataset rate).
+    mode : "whole_head" or "regional"
+        - "whole_head": features averaged across all channels.
+          Output is (n_segments, ~30) features.
+        - "regional": features averaged within each region (frontal,
+          temporal, central, parietal, occipital).
+          Output is (n_segments, ~150) features.
+    channel_names : list of str, optional
+        Required only for "regional" mode. Default: standard 19-channel
+        10-20 layout matching the Kaggle dataset.
+    skip_lzc : bool
+        If True, skip Lempel-Ziv complexity (saves a small amount of time).
+        Default False.
+    return_names : bool
+        If True, return (features_array, feature_names).
+        If False, return features_array only.
+
+    Returns
+    -------
+    features : ndarray, shape (n_segments, n_features)
+    feature_names : list of str (only if return_names=True)
+
+    Examples
+    --------
+    >>> # Single segment, whole-head averaging
+    >>> X, names = extract_features_fast(segment, mode="whole_head")
+    >>> X.shape
+    (1, 31)
+    >>>
+    >>> # Many segments, regional features
+    >>> X, names = extract_features_fast(all_segments, mode="regional")
+    >>> X.shape
+    (n_segments, ~150)
+    """
+    # --- Standardize input shape to (n_segments, n_channels, n_samples) ---
+    if eeg_input.ndim == 2:
+        segments = eeg_input[np.newaxis, :, :]
+    elif eeg_input.ndim == 3:
+        segments = eeg_input
+    else:
+        raise ValueError(
+            f"eeg_input must be 2D or 3D ndarray, got {eeg_input.ndim}D"
+        )
+
+    n_segments, n_channels, _ = segments.shape
+
+    # Default channel names (standard 19-ch 10-20)
+    if channel_names is None:
+        channel_names = [
+            "Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8",
+            "T3", "C3", "Cz", "C4", "T4",
+            "T5", "P3", "Pz", "P4", "T6",
+            "O1", "O2",
+        ][:n_channels]
+
+    # --- Build per-channel features function (with optional LZC skip) ---
+    def _ch_feats(sig):
+        feats = _channel_features_fast(sig, sfreq)
+        if skip_lzc:
+            feats.pop("lzc", None)
+        return feats
+
+    # --- Pre-compute region-to-channel-index map (used in regional mode) ---
+    if mode == "regional":
+        region_indices = {}
+        for region, region_chs in REGIONS.items():
+            indices = [i for i, ch in enumerate(channel_names)
+                       if ch in region_chs]
+            if indices:
+                region_indices[region] = indices
+
+    # --- Loop over segments ---
+    rows = []
+    feature_names_out = None
+
+    for seg_idx in range(n_segments):
+        seg = segments[seg_idx]
+
+        # Compute features for every channel ONCE
+        per_channel_feats = [_ch_feats(seg[ch]) for ch in range(n_channels)]
+        feat_keys = list(per_channel_feats[0].keys())
+
+        if mode == "whole_head":
+            # Average each feature across all channels
+            row_dict = {}
+            for f in feat_keys:
+                vals = [c[f] for c in per_channel_feats]
+                row_dict[f] = _safe_nanmean(vals)
+            if feature_names_out is None:
+                feature_names_out = list(row_dict.keys())
+            rows.append([row_dict[f] for f in feature_names_out])
+
+        elif mode == "regional":
+            # Average each feature within each region
+            row_dict = {}
+            for region, indices in region_indices.items():
+                for f in feat_keys:
+                    vals = [per_channel_feats[i][f] for i in indices]
+                    row_dict[f"{region}__{f}"] = _safe_nanmean(vals)
+            if feature_names_out is None:
+                feature_names_out = list(row_dict.keys())
+            rows.append([row_dict[f] for f in feature_names_out])
+
+        else:
+            raise ValueError(
+                f"mode must be 'whole_head' or 'regional', got {mode!r}"
+            )
+
+    features = np.array(rows, dtype=np.float32)
+
+    if return_names:
+        return features, feature_names_out
+    return features
+
+
+# =============================================================================
 # DEMO / TESTING
 # =============================================================================
 
