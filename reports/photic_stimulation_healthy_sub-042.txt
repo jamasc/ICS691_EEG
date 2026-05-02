@@ -1,0 +1,73 @@
+=== EEG Biomarker Report: Subject sub-042_task-photomark ===
+
+Recording condition: Photic Stimulation (IPS)
+  Standard clinical protocol using flashing lights. Occipital activity is driven by external stimulus. PDF and IAF are not meaningful during stimulation.
+Segments analyzed: 50 (each 4.1s)
+Persistence threshold for flagging: 25% of segments
+
+--- OVERALL AVERAGES (all segments) ---
+  FRONTAL (Fp1, Fp2, F3, F4, F7, F8, Fz):
+    theta_alpha_ratio              0.7818
+    theta_relative_power           0.0800
+    alpha_relative_power           0.2400
+    spectral_centroid                6.94 Hz
+    spectral_peak                    3.10 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.7121
+    lzc                            0.7380
+
+  TEMPORAL (T3, T4, T5, T6):
+    theta_alpha_ratio              0.6395
+    theta_relative_power           0.0822
+    alpha_relative_power           0.3150
+    spectral_centroid                7.36 Hz
+    spectral_peak                    3.96 Hz
+    iaf                              9.42 Hz
+    pdf                           98.5018
+    spectral_entropy               0.7271
+    lzc                            0.6943
+
+  PARIETAL (P3, P4, Pz):
+    theta_alpha_ratio              0.6229
+    theta_relative_power           0.0825
+    alpha_relative_power           0.2624
+    spectral_centroid                6.40 Hz
+    spectral_peak                    2.70 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.7067
+    lzc                            0.6579
+
+  OCCIPITAL (O1, O2):
+    theta_alpha_ratio              0.4405
+    theta_relative_power           0.0652
+    alpha_relative_power           0.4103
+    spectral_centroid                6.76 Hz
+    spectral_peak                    4.98 Hz
+    iaf                              9.56 Hz
+    pdf                           89.2599
+    spectral_entropy               0.6451
+    lzc                            0.5846
+
+  CENTRAL (C3, C4, Cz):
+    theta_alpha_ratio              0.5765
+    theta_relative_power           0.0914
+    alpha_relative_power           0.3090
+    spectral_centroid                7.33 Hz
+    spectral_peak                    4.23 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.7391
+    lzc                            0.7199
+
+Posterior alpha coherence: 0.5870
+
+--- TEMPORAL CONSISTENCY ---
+Segments with any AD-like pattern: 3/50 (6%)
+Persistently flagged features (≥25% of segments AND recording avg abnormal): 0
+  No persistent AD-associated abnormalities detected.
+  (Some individual segments showed transient flags, but they did not persist or shift the overall recording average — this is expected variation.)
+
+--- AD INDICATOR SUMMARY ---
+  No persistent abnormalities at the recording level. Per-segment fluctuations did not exceed the persistence threshold and the overall averages are within healthy reference ranges.

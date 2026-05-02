@@ -1,0 +1,406 @@
+=== EEG Biomarker Report: Subject sub-074_task-eyesclosed ===
+
+Recording condition: Resting State (Eyes Closed)
+  Gold standard for AD EEG assessment. Alpha rhythm is strongest in this condition.
+Segments analyzed: 250 (each 4.1s)
+
+--- OVERALL AVERAGES (all segments) ---
+  FRONTAL (Fp1, Fp2, F3, F4, F7, F8, Fz):
+    theta_alpha_ratio              1.1568
+    theta_relative_power           0.1378
+    alpha_relative_power           0.1739
+    spectral_centroid                4.74 Hz
+    spectral_peak                    1.26 Hz
+    iaf                               nan Hz
+    pdf                           97.7023
+    spectral_entropy               0.6497
+    lzc                            0.5527
+
+  TEMPORAL (T3, T4, T5, T6):
+    theta_alpha_ratio              0.7179
+    theta_relative_power           0.1140
+    alpha_relative_power           0.2677
+    spectral_centroid                6.83 Hz
+    spectral_peak                    3.01 Hz
+    iaf                               nan Hz
+    pdf                           97.7568
+    spectral_entropy               0.7121
+    lzc                            0.7067
+
+  PARIETAL (P3, P4, Pz):
+    theta_alpha_ratio              0.7314
+    theta_relative_power           0.1192
+    alpha_relative_power           0.2637
+    spectral_centroid                6.08 Hz
+    spectral_peak                    2.64 Hz
+    iaf                               nan Hz
+    pdf                           98.1303
+    spectral_entropy               0.7055
+    lzc                            0.6084
+
+  OCCIPITAL (O1, O2):
+    theta_alpha_ratio              0.4987
+    theta_relative_power           0.1013
+    alpha_relative_power           0.3738
+    spectral_centroid                6.31 Hz
+    spectral_peak                    4.26 Hz
+    iaf                               nan Hz
+    pdf                           97.1610
+    spectral_entropy               0.6808
+    lzc                            0.6191
+
+  CENTRAL (C3, C4, Cz):
+    theta_alpha_ratio              0.8005
+    theta_relative_power           0.1180
+    alpha_relative_power           0.2135
+    spectral_centroid                6.10 Hz
+    spectral_peak                    1.94 Hz
+    iaf                               nan Hz
+    pdf                           97.4958
+    spectral_entropy               0.6858
+    lzc                            0.6213
+
+Posterior alpha coherence: 0.5468
+
+--- TEMPORAL CONSISTENCY ---
+Segments with AD-like patterns: 172/250 (69%)
+  ⚠ Frequent AD-like patterns
+
+--- FLAGGED SEGMENTS (detailed) ---
+  theta_relative_power — PARIETAL
+    Flagged in segments: 1, 3, 4, 9, 11, 17, 18, 21, 28, 29, 35, 36, 37, 38, 39, 40, 60, 61, 64, 65, 67, 69, 71, 77, 79, 85, 89, 91, 106, 123, 125, 128, 130, 148, 150, 157, 162, 163, 174, 175, 177, 187, 188, 194, 195, 203, 204, 208, 209, 210, 212, 214, 220, 226, 230, 231, 232, 233, 235, 246, 247, 248
+    Channels: P3, P4, Pz
+    Per-channel averages (across flagged segments):
+      P3: 0.1938 (range: 0.0984–0.3753)
+      P4: 0.1728 (range: 0.0941–0.2716)
+      Pz: 0.1994 (range: 0.1380–0.3465)
+
+  spectral_entropy — TEMPORAL
+    Flagged in segments: 2, 12, 13, 22, 23, 32, 44, 54, 55, 86, 92, 98, 104, 121, 137, 138, 139, 140, 166, 167, 172, 250
+    Channels: T3, T4, T5, T6
+    Per-channel averages (across flagged segments):
+      T3: 0.4164 (range: 0.2510–0.6941)
+      T4: 0.3966 (range: 0.0660–0.7050)
+      T5: 0.3888 (range: 0.2359–0.6202)
+      T6: 0.4081 (range: 0.3024–0.5349)
+
+  shannon_entropy — TEMPORAL
+    Flagged in segments: 2, 12, 13, 22, 23, 32, 44, 54, 55, 86, 92, 98, 104, 121, 137, 138, 139, 140, 166, 167, 172, 250
+    Channels: T3, T4, T5, T6
+    Per-channel averages (across flagged segments):
+      T3: 2.4596 (range: 1.4824–4.1001)
+      T4: 2.3427 (range: 0.3896–4.1641)
+      T5: 2.2966 (range: 1.3932–3.6635)
+      T6: 2.4107 (range: 1.7863–3.1598)
+
+  spectral_centroid — TEMPORAL
+    Flagged in segments: 2, 5, 6, 8, 10, 12, 13, 15, 22, 23, 32, 44, 50, 51, 53, 54, 55, 80, 86, 92, 98, 99, 104, 121, 137, 138, 139, 140, 155, 164, 165, 166, 167, 172, 211, 250
+    Channels: T3, T4, T5, T6
+    Per-channel averages (across flagged segments):
+      T3: 2.63 Hz (range: 0.95–5.75)
+      T4: 2.80 Hz (range: 0.54–7.07)
+      T5: 2.60 Hz (range: 0.89–7.15)
+      T6: 2.14 Hz (range: 1.12–3.83)
+
+  delta_relative_power — TEMPORAL
+    Flagged in segments: 2, 6, 10, 12, 13, 15, 22, 23, 32, 44, 51, 53, 54, 55, 80, 86, 92, 98, 104, 121, 137, 138, 140, 155, 164, 165, 166, 167, 172, 211, 250
+    Channels: T3, T4, T5, T6
+    Per-channel averages (across flagged segments):
+      T3: 0.8520 (range: 0.6006–0.9829)
+      T4: 0.8393 (range: 0.5484–0.9997)
+      T5: 0.8512 (range: 0.4119–0.9812)
+      T6: 0.8794 (range: 0.7061–0.9751)
+
+  lzc — FRONTAL
+    Flagged in segments: 2, 6, 8, 10, 12, 13, 22, 23, 32, 44, 45, 52, 54, 55, 73, 80, 81, 86, 92, 98, 99, 104, 121, 137, 138, 139, 140, 162, 163, 164, 165, 166, 167, 211
+    Channels: Fp1, Fp2, F3, F4, F7, F8, Fz
+    Per-channel averages (across flagged segments):
+      Fp1: 0.2756 (range: 0.1230–0.4746)
+      Fp2: 0.2637 (range: 0.0703–0.4395)
+      F3: 0.2828 (range: 0.1055–0.5098)
+      F4: 0.2942 (range: 0.1055–0.5273)
+      F7: 0.3490 (range: 0.1406–0.5977)
+      F8: 0.3903 (range: 0.0879–0.7383)
+      Fz: 0.3495 (range: 0.1406–0.5801)
+
+  spectral_centroid — PARIETAL
+    Flagged in segments: 2, 6, 12, 13, 22, 23, 32, 44, 50, 53, 54, 55, 80, 86, 92, 98, 103, 104, 117, 121, 137, 138, 139, 140, 155, 165, 166, 167, 172, 198, 211, 215
+    Channels: P3, P4, Pz
+    Per-channel averages (across flagged segments):
+      P3: 1.94 Hz (range: 0.58–3.49)
+      P4: 1.99 Hz (range: 0.67–3.34)
+      Pz: 1.78 Hz (range: 0.68–2.84)
+
+  shannon_entropy — PARIETAL
+    Flagged in segments: 2, 12, 22, 23, 32, 54, 55, 80, 86, 92, 98, 104, 139, 140, 155, 166, 167
+    Channels: P3, P4, Pz
+    Per-channel averages (across flagged segments):
+      P3: 1.9202 (range: 0.6091–2.6949)
+      P4: 1.9704 (range: 1.0208–3.0066)
+      Pz: 1.8638 (range: 1.0214–2.5552)
+
+  spectral_entropy — PARIETAL
+    Flagged in segments: 2, 12, 22, 23, 32, 54, 55, 80, 86, 92, 98, 104, 139, 140, 155, 166, 167
+    Channels: P3, P4, Pz
+    Per-channel averages (across flagged segments):
+      P3: 0.3251 (range: 0.1031–0.4562)
+      P4: 0.3336 (range: 0.1728–0.5090)
+      Pz: 0.3155 (range: 0.1729–0.4326)
+
+  delta_relative_power — CENTRAL
+    Flagged in segments: 2, 6, 8, 10, 12, 13, 22, 23, 32, 44, 51, 54, 55, 92, 98, 136, 137, 138, 140, 165, 166, 167, 211
+    Channels: C3, C4, Cz
+    Per-channel averages (across flagged segments):
+      C3: 0.8966 (range: 0.6741–0.9993)
+      C4: 0.8881 (range: 0.7485–0.9944)
+      Cz: 0.9036 (range: 0.6769–0.9945)
+
+  spectral_centroid — CENTRAL
+    Flagged in segments: 2, 6, 8, 10, 12, 13, 22, 23, 32, 44, 51, 53, 54, 55, 92, 98, 136, 137, 138, 139, 140, 163, 164, 165, 166, 167, 211
+    Channels: C3, C4, Cz
+    Per-channel averages (across flagged segments):
+      C3: 2.05 Hz (range: 0.60–4.10)
+      C4: 2.16 Hz (range: 0.77–4.34)
+      Cz: 1.98 Hz (range: 0.73–4.24)
+
+  spectral_centroid — OCCIPITAL
+    Flagged in segments: 2, 5, 8, 10, 12, 13, 22, 23, 32, 44, 46, 54, 55, 80, 86, 92, 98, 104, 121, 138, 140, 155, 165, 166, 167, 211
+    Channels: O1, O2
+    Per-channel averages (across flagged segments):
+      O1: 1.82 Hz (range: 0.77–3.18)
+      O2: 1.75 Hz (range: 0.62–2.76)
+
+  spectral_entropy — CENTRAL
+    Flagged in segments: 2, 6, 8, 10, 12, 13, 23, 32, 44, 54, 55, 92, 98, 104, 139, 140, 166, 167, 211, 250
+    Channels: C3, C4, Cz
+    Per-channel averages (across flagged segments):
+      C3: 0.3958 (range: 0.1273–0.8038)
+      C4: 0.4118 (range: 0.2237–0.6195)
+      Cz: 0.3433 (range: 0.1910–0.5347)
+
+  shannon_entropy — CENTRAL
+    Flagged in segments: 2, 6, 8, 10, 12, 13, 23, 32, 44, 54, 55, 92, 98, 104, 139, 140, 166, 167, 211, 250
+    Channels: C3, C4, Cz
+    Per-channel averages (across flagged segments):
+      C3: 2.3378 (range: 0.7519–4.7479)
+      C4: 2.4322 (range: 1.3213–3.6591)
+      Cz: 2.0276 (range: 1.1284–3.1584)
+
+  delta_relative_power — PARIETAL
+    Flagged in segments: 2, 6, 12, 13, 22, 23, 32, 53, 54, 55, 80, 86, 92, 98, 104, 137, 138, 140, 155, 166, 167, 172, 211
+    Channels: P3, P4, Pz
+    Per-channel averages (across flagged segments):
+      P3: 0.9196 (range: 0.7562–0.9987)
+      P4: 0.9188 (range: 0.7850–0.9980)
+      Pz: 0.9217 (range: 0.8271–0.9969)
+
+  delta_relative_power — OCCIPITAL
+    Flagged in segments: 2, 5, 10, 12, 13, 22, 23, 32, 44, 46, 54, 55, 80, 86, 92, 98, 104, 121, 138, 155, 165, 166, 167, 211
+    Channels: O1, O2
+    Per-channel averages (across flagged segments):
+      O1: 0.9051 (range: 0.7643–0.9882)
+      O2: 0.9008 (range: 0.7897–0.9992)
+
+  spectral_centroid — FRONTAL
+    Flagged in segments: 2, 6, 8, 10, 12, 13, 22, 23, 32, 54, 55, 73, 80, 81, 86, 92, 98, 103, 104, 117, 121, 127, 137, 138, 140, 155, 165, 166, 167, 172, 183, 211
+    Channels: Fp1, Fp2, F3, F4, F7, F8, Fz
+    Per-channel averages (across flagged segments):
+      Fp1: 1.41 Hz (range: 0.72–2.51)
+      Fp2: 1.39 Hz (range: 0.74–2.32)
+      F3: 1.74 Hz (range: 0.69–3.50)
+      F4: 1.83 Hz (range: 0.83–3.20)
+      F7: 2.21 Hz (range: 0.90–4.10)
+      F8: 2.48 Hz (range: 0.87–7.24)
+      Fz: 2.31 Hz (range: 0.76–5.34)
+
+  lzc — CENTRAL
+    Flagged in segments: 2, 6, 7, 8, 10, 12, 13, 23, 32, 44, 50, 52, 54, 55, 92, 98, 104, 136, 137, 138, 139, 140, 162, 163, 164, 165, 166, 167, 211, 216
+    Channels: C3, C4, Cz
+    Per-channel averages (across flagged segments):
+      C3: 0.3428 (range: 0.1406–0.5273)
+      C4: 0.3791 (range: 0.1055–0.6328)
+      Cz: 0.2437 (range: 0.0879–0.3867)
+
+  shannon_entropy — FRONTAL
+    Flagged in segments: 2, 12, 23, 32, 54, 55, 80, 81, 86, 92, 98, 104, 140, 155, 166, 167
+    Channels: Fp1, Fp2, F3, F4, F7, F8, Fz
+    Per-channel averages (across flagged segments):
+      Fp1: 1.7996 (range: 0.9552–3.0165)
+      Fp2: 1.8036 (range: 1.0325–2.6256)
+      F3: 1.7549 (range: 0.7497–2.3791)
+      F4: 1.8842 (range: 0.9878–2.9938)
+      F7: 2.3945 (range: 1.5192–3.9360)
+      F8: 2.2809 (range: 1.4210–3.7667)
+      Fz: 2.4088 (range: 1.2960–4.0086)
+
+  spectral_entropy — FRONTAL
+    Flagged in segments: 2, 12, 23, 32, 54, 55, 80, 81, 86, 92, 98, 104, 140, 155, 166, 167
+    Channels: Fp1, Fp2, F3, F4, F7, F8, Fz
+    Per-channel averages (across flagged segments):
+      Fp1: 0.3047 (range: 0.1617–0.5107)
+      Fp2: 0.3053 (range: 0.1748–0.4445)
+      F3: 0.2971 (range: 0.1269–0.4028)
+      F4: 0.3190 (range: 0.1672–0.5068)
+      F7: 0.4054 (range: 0.2572–0.6663)
+      F8: 0.3861 (range: 0.2406–0.6377)
+      Fz: 0.4078 (range: 0.2194–0.6786)
+
+  spectral_entropy — OCCIPITAL
+    Flagged in segments: 2, 12, 23, 32, 44, 46, 54, 55, 86, 92, 98, 104, 166, 167
+    Channels: O1, O2
+    Per-channel averages (across flagged segments):
+      O1: 0.3204 (range: 0.1886–0.4185)
+      O2: 0.3226 (range: 0.1478–0.5251)
+
+  shannon_entropy — OCCIPITAL
+    Flagged in segments: 2, 12, 23, 32, 44, 46, 54, 55, 86, 92, 98, 104, 166, 167
+    Channels: O1, O2
+    Per-channel averages (across flagged segments):
+      O1: 1.8926 (range: 1.1139–2.4719)
+      O2: 1.9054 (range: 0.8731–3.1019)
+
+  lzc — TEMPORAL
+    Flagged in segments: 2, 6, 12, 13, 23, 32, 50, 52, 54, 55, 81, 92, 98, 104, 137, 138, 139, 140, 162, 163, 164, 165, 166, 167
+    Channels: T3, T4, T5, T6
+    Per-channel averages (across flagged segments):
+      T3: 0.4050 (range: 0.2109–0.6855)
+      T4: 0.3655 (range: 0.0879–0.5625)
+      T5: 0.3662 (range: 0.1230–0.6680)
+      T6: 0.3105 (range: 0.1934–0.4746)
+
+  median_frequency — TEMPORAL
+    Flagged in segments: 2, 5, 12, 13, 14, 15, 22, 23, 32, 44, 45, 54, 55, 66, 73, 80, 81, 86, 92, 98, 99, 103, 104, 112, 121, 132, 137, 138, 139, 140, 155, 165, 166, 167, 169, 172, 186, 198, 211, 245, 249, 250
+    Channels: T3, T4, T5, T6
+    Per-channel averages (across flagged segments):
+      T3: 0.99 Hz (range: 0.50–2.50)
+      T4: 1.00 Hz (range: 0.50–3.50)
+      T5: 0.87 Hz (range: 0.50–3.00)
+      T6: 0.85 Hz (range: 0.50–2.00)
+
+  delta_relative_power — FRONTAL
+    Flagged in segments: 2, 6, 8, 12, 13, 22, 23, 32, 54, 55, 80, 86, 92, 98, 104, 138, 140, 155, 166, 167, 211
+    Channels: Fp1, Fp2, F3, F4, F7, F8, Fz
+    Per-channel averages (across flagged segments):
+      Fp1: 0.9509 (range: 0.8881–0.9884)
+      Fp2: 0.9510 (range: 0.8974–0.9894)
+      F3: 0.9299 (range: 0.8399–0.9896)
+      F4: 0.9254 (range: 0.8337–0.9885)
+      F7: 0.8725 (range: 0.6700–0.9836)
+      F8: 0.8725 (range: 0.6049–0.9958)
+      Fz: 0.8875 (range: 0.6095–0.9922)
+
+  median_frequency — CENTRAL
+    Flagged in segments: 2, 12, 23, 32, 44, 54, 55, 92, 98, 104, 139, 140, 166, 167, 216
+    Channels: C3, C4, Cz
+    Per-channel averages (across flagged segments):
+      C3: 0.57 Hz (range: 0.50–1.00)
+      C4: 0.63 Hz (range: 0.50–1.00)
+      Cz: 0.53 Hz (range: 0.50–1.00)
+
+  theta_relative_power — TEMPORAL
+    Flagged in segments: 3, 11, 27, 28, 35, 36, 38, 49, 50, 52, 71, 106, 115, 116, 126, 128, 135, 162, 163, 175, 177, 203, 204, 207, 210, 212, 214, 217, 220, 222, 223, 224, 228, 230, 235
+    Channels: T3, T4, T5, T6
+    Per-channel averages (across flagged segments):
+      T3: 0.2489 (range: 0.1485–0.3987)
+      T4: 0.1750 (range: 0.0664–0.3033)
+      T5: 0.1729 (range: 0.0667–0.2767)
+      T6: 0.1396 (range: 0.0612–0.2596)
+
+  theta_alpha_ratio — OCCIPITAL
+    Flagged in segments: 5, 10, 13, 23, 44, 50, 52, 53, 54, 137, 138, 162, 163, 211
+    Channels: O1, O2
+    Per-channel averages (across flagged segments):
+      O1: 3.2702 (range: 0.6489–11.0026)
+      O2: 3.6652 (range: 1.0369–8.0373)
+
+  theta_alpha_ratio — TEMPORAL
+    Flagged in segments: 6, 8, 10, 13, 22, 23, 32, 50, 51, 52, 53, 55, 137, 138, 140, 162, 163, 164, 165, 166, 211
+    Channels: T3, T4, T5, T6
+    Per-channel averages (across flagged segments):
+      T3: 2.8701 (range: 1.2183–6.8278)
+      T4: 3.8113 (range: 0.9518–12.1676)
+      T5: 2.1073 (range: 0.2782–6.7422)
+      T6: 2.2456 (range: 0.3998–6.5683)
+
+  theta_alpha_ratio — PARIETAL
+    Flagged in segments: 6, 8, 10, 13, 23, 32, 42, 44, 50, 52, 53, 54, 79, 138, 162, 163, 164, 165, 186, 211
+    Channels: P3, P4, Pz
+    Per-channel averages (across flagged segments):
+      P3: 3.6568 (range: 1.4467–17.3960)
+      P4: 2.7136 (range: 0.8921–7.6099)
+      Pz: 3.5582 (range: 0.5221–20.7398)
+
+  theta_alpha_ratio — CENTRAL
+    Flagged in segments: 6, 8, 10, 13, 23, 50, 52, 53, 55, 136, 137, 138, 162, 163, 164, 165, 211
+    Channels: C3, C4, Cz
+    Per-channel averages (across flagged segments):
+      C3: 3.3219 (range: 0.9026–7.3461)
+      C4: 3.0343 (range: 1.1277–6.7201)
+      Cz: 3.5924 (range: 1.2777–12.0371)
+
+  theta_alpha_ratio — FRONTAL
+    Flagged in segments: 6, 8, 10, 13, 21, 22, 23, 32, 50, 52, 53, 54, 79, 112, 137, 138, 140, 163, 164, 165, 167, 204, 211
+    Channels: Fp1, Fp2, F3, F4, F7, F8, Fz
+    Per-channel averages (across flagged segments):
+      Fp1: 3.9504 (range: 1.0879–10.7284)
+      Fp2: 3.9902 (range: 0.7328–10.7200)
+      F3: 2.7844 (range: 1.0139–7.1634)
+      F4: 2.7507 (range: 0.8207–6.8628)
+      F7: 2.8250 (range: 1.0709–7.1429)
+      F8: 3.4627 (range: 0.9197–10.8355)
+      Fz: 2.7542 (range: 0.8208–8.2678)
+
+  theta_relative_power — FRONTAL
+    Flagged in segments: 11, 17, 19, 21, 26, 27, 28, 29, 34, 35, 36, 37, 38, 39, 48, 49, 50, 52, 56, 57, 59, 62, 64, 65, 67, 69, 71, 77, 78, 79, 82, 84, 85, 89, 90, 94, 96, 106, 107, 111, 115, 116, 120, 123, 125, 126, 128, 130, 131, 135, 141, 145, 147, 150, 152, 154, 156, 157, 158, 162, 163, 164, 174, 175, 177, 178, 181, 182, 193, 194, 196, 197, 200, 203, 204, 207, 210, 212, 213, 214, 217, 220, 222, 223, 224, 226, 228, 229, 230, 231, 232, 233, 235, 237, 242, 243, 246, 247, 248, 250
+    Channels: Fp1, Fp2, F3, F4, F7, F8, Fz
+    Per-channel averages (across flagged segments):
+      Fp1: 0.1870 (range: 0.0790–0.3034)
+      Fp2: 0.1668 (range: 0.0685–0.3061)
+      F3: 0.2037 (range: 0.0092–0.3634)
+      F4: 0.1275 (range: 0.0178–0.3511)
+      F7: 0.2352 (range: 0.1019–0.4352)
+      F8: 0.1748 (range: 0.0579–0.3637)
+      Fz: 0.2361 (range: 0.1193–0.4359)
+
+  lzc — PARIETAL
+    Flagged in segments: 12, 13, 23, 32, 45, 50, 52, 54, 55, 80, 92, 98, 104, 137, 139, 140, 162, 163, 164, 165, 167, 211
+    Channels: P3, P4, Pz
+    Per-channel averages (across flagged segments):
+      P3: 0.2717 (range: 0.0879–0.3867)
+      P4: 0.3092 (range: 0.1230–0.4922)
+      Pz: 0.2573 (range: 0.0703–0.3867)
+
+  median_frequency — PARIETAL
+    Flagged in segments: 12, 23, 32, 54, 55, 70, 80, 86, 92, 98, 104, 139, 140, 166, 167
+    Channels: P3, P4, Pz
+    Per-channel averages (across flagged segments):
+      P3: 0.50 Hz (range: 0.50–0.50)
+      P4: 0.50 Hz (range: 0.50–0.50)
+      Pz: 0.50 Hz (range: 0.50–0.50)
+
+  theta_relative_power — CENTRAL
+    Flagged in segments: 28, 50, 52, 64, 71, 107, 126, 158, 162, 163, 178, 203, 213, 214
+    Channels: C3, C4, Cz
+    Per-channel averages (across flagged segments):
+      C3: 0.2418 (range: 0.1375–0.3771)
+      C4: 0.2081 (range: 0.0564–0.3556)
+      Cz: 0.1821 (range: 0.0919–0.2824)
+
+  lzc — OCCIPITAL
+    Flagged in segments: 32, 44, 45, 46, 52, 54, 55, 73, 80, 92, 98, 104, 137, 139, 140, 162, 163, 164, 165, 166, 167
+    Channels: O1, O2
+    Per-channel averages (across flagged segments):
+      O1: 0.2854 (range: 0.0879–0.5098)
+      O2: 0.2503 (range: 0.1406–0.4922)
+
+  theta_relative_power — OCCIPITAL
+    Flagged in segments: 35, 39, 50, 52, 71, 89, 144, 162, 163, 177, 203, 204, 207, 222, 226, 235
+    Channels: O1, O2
+    Per-channel averages (across flagged segments):
+      O1: 0.2054 (range: 0.0971–0.2712)
+      O2: 0.2044 (range: 0.1532–0.2964)
+
+--- AD INDICATOR SUMMARY ---
+  * Theta/slow-wave elevation in frontal, central, occipital, temporal, parietal — consistent with cholinergic deficit / hippocampal damage
+  * Reduced signal complexity — consistent with neuronal network degradation
+  * Spectral slowing — consistent with cortical hypoactivation in AD

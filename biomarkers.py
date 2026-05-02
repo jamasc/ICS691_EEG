@@ -17,9 +17,21 @@ Pipeline entry point:
 
 Dependencies:
     pip install numpy scipy mne
+
+
+CHANGES FROM v3 (false-positive fixes):
+  1. analyze_segments() now requires BOTH (a) the recording-level average to
+     be flagged AND (b) at least `persistence_threshold` (default 25%) of
+     segments to be flagged before a feature counts as "abnormal."
+  2. Reference now stores 5th/95th percentiles in addition to mean ± 2σ.
+     Percentile cutoffs are the new default — robust to skewed features.
+  3. IAF averaging is nan-safe (was poisoning whole-recording averages).
+  4. format_tiered_report() drives the AD INDICATOR SUMMARY off the
+     filtered persistent_flags rather than "any segment flagged ever."
 """
 
 import os
+import warnings
 import numpy as np
 from scipy import signal, stats
 
@@ -35,12 +47,7 @@ BANDS = {
     "beta":  (12, 30),
 }
 
-# Equipment-independent features — safe to use across any dataset/equipment
-# These are ratios, percentages, or frequency-based measures that don't
-# depend on amplifier gain or electrode impedance.
-# NOTE: PDF and IAF are excluded because they require properly bandpass-
-# filtered data to be reliable. They're still computed and shown in the
-# overview, but won't trigger flags during screening.
+# Equipment-independent features — safe to use across any dataset/equipment.
 NORMALIZED_FEATURES = [
     "theta_alpha_ratio",
     "theta_relative_power",
@@ -58,9 +65,12 @@ NORMALIZED_FEATURES = [
     "alpha_beta_ratio",
 ]
 
-# Channel-to-region mapping (standard 10-20, 19 channels)
-# Includes both original names AND names after LJ's preprocessing
-# (which uppercases and renames: Fp1→FP1, Fz→FZ, T3→T7, T5→P7, etc.)
+# Default fraction of segments that must show a flag before we treat a
+# feature as "persistently abnormal." Together with the recording-level
+# check this kills almost all of the random-noise false positives.
+DEFAULT_PERSISTENCE_THRESHOLD = 0.25
+
+# Channel-to-region mapping (standard 10-20, 19 channels).
 REGIONS = {
     "frontal":   ["Fp1", "Fp2", "F7", "F3", "Fz", "F4", "F8",
                   "FP1", "FP2", "FZ"],
@@ -73,7 +83,6 @@ REGIONS = {
     "occipital": ["O1", "O2"],
 }
 
-# Clinical significance of each region in AD
 REGION_AD_NOTES = {
     "frontal":   "Executive function, attention — cholinergic dysfunction causes theta increase",
     "central":   "Sensorimotor processing — alpha reduction with disease progression",
@@ -82,19 +91,15 @@ REGION_AD_NOTES = {
     "occipital": "Alpha generation site — posterior slowing is a hallmark AD sign",
 }
 
-# Posterior channels for posterior-specific coherence
 POSTERIOR_CHANNELS = ["P3", "P4", "O1", "O2", "Pz", "T5", "T6",
                       "PZ", "P7", "P8"]
 
-# Recording condition definitions
-# Each condition defines which features should NOT be flagged because
-# they are expected to be different from resting eyes-closed baseline.
 RECORDING_CONDITIONS = {
     "resting_eyes_closed": {
         "label": "Resting State (Eyes Closed)",
         "description": "Gold standard for AD EEG assessment. "
                        "Alpha rhythm is strongest in this condition.",
-        "suppress_flags": [],  # No features suppressed — this is the baseline
+        "suppress_flags": [],
     },
     "resting_eyes_open": {
         "label": "Resting State (Eyes Open)",
@@ -141,7 +146,6 @@ RECORDING_CONDITIONS = {
     },
 }
 
-# Map Kaggle source datasets to recording conditions
 SOURCE_TO_CONDITION = {
     "ADFTD":       "resting_eyes_closed",
     "AD-Auditory": "auditory_task",
@@ -170,6 +174,20 @@ def _band_power(freqs, psd, low, high):
     mask = (freqs >= low) & (freqs < high)
     freq_res = freqs[1] - freqs[0]
     return float(np.sum(psd[mask]) * freq_res)
+
+
+def _safe_nanmean(vals):
+    """np.nanmean but suppresses 'all-NaN slice' warnings.
+
+    Returns NaN if every input is NaN (which is what we want — it tells us
+    the feature genuinely couldn't be computed for any segment).
+    """
+    arr = np.asarray(vals, dtype=float)
+    if arr.size == 0 or np.all(np.isnan(arr)):
+        return float("nan")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        return float(np.nanmean(arr))
 
 
 # =============================================================================
@@ -293,20 +311,11 @@ def _entropy_features(sig, sfreq):
 # =============================================================================
 
 def compute_lzc(sig):
-    """
-    Lempel-Ziv Complexity (LZC).
-
-    Measures signal complexity by counting distinct patterns in
-    the binarized signal. Lower LZC in AD = simpler, more
-    repetitive brain activity.
-    Downsamples long signals for performance.
-    """
-    # Downsample long signals (LZC doesn't need high temporal resolution)
+    """Lempel-Ziv Complexity (LZC)."""
     if len(sig) > 512:
         step = len(sig) // 512
         sig = sig[::step][:512]
 
-    # Binarize around median
     median_val = np.median(sig)
     binary = (sig >= median_val).astype(int)
     s = "".join(map(str, binary))
@@ -315,7 +324,6 @@ def compute_lzc(sig):
     if n <= 1:
         return 0.0
 
-    # Lempel-Ziv 1976 complexity
     c = 1
     i = 0
     k = 1
@@ -328,23 +336,14 @@ def compute_lzc(sig):
             i = i + k
             k = 1
 
-    # Normalize: random binary sequence has c ≈ n / log2(n)
     c_norm = c * np.log2(n) / n
     return float(c_norm)
 
 
 def compute_iaf(sig, sfreq):
-    """
-    Individual Alpha Frequency (IAF).
-
-    The peak frequency within the alpha band (8-12 Hz) for this
-    specific patient. More clinically specific than overall spectral
-    peak. Slows from ~10 Hz to ~8 Hz or below in AD.
-    Returns NaN if no alpha activity detected (segment excluded from flagging).
-    """
+    """Individual Alpha Frequency (IAF). NaN if no alpha activity."""
     freqs, psd = _compute_psd(sig, sfreq)
 
-    # Focus only on alpha band
     alpha_mask = (freqs >= 8) & (freqs <= 12)
     alpha_freqs = freqs[alpha_mask]
     alpha_psd = psd[alpha_mask]
@@ -352,23 +351,12 @@ def compute_iaf(sig, sfreq):
     if len(alpha_psd) == 0 or np.sum(alpha_psd) < 1e-10:
         return float('nan')
 
-    # Weighted mean frequency in alpha band (gravity center method)
     iaf = float(np.sum(alpha_freqs * alpha_psd) / np.sum(alpha_psd))
-
     return iaf
 
 
 def compute_pdf(sig, sfreq):
-    """
-    Power Distribution Ratio (PDF).
-
-    Ratio of slow-wave power (delta + theta) to fast-wave power
-    (alpha + beta). Also called the "slowing ratio."
-
-    Higher PDF = more slowing = more AD-like.
-    Healthy adults typically < 1.0; AD patients often > 1.5.
-    Capped at 100 to avoid infinity when fast-wave power is near zero.
-    """
+    """Power Distribution Ratio (PDF) — slow/fast power. Capped at 100."""
     freqs, psd = _compute_psd(sig, sfreq)
 
     slow = (_band_power(freqs, psd, *BANDS["delta"])
@@ -397,17 +385,7 @@ def compute_phase_coherence(ch1, ch2, sfreq, band="alpha"):
 
 
 def compute_posterior_alpha_coherence(data, ch_names, sfreq):
-    """
-    Posterior Alpha Coherence.
-
-    Measures functional connectivity specifically between posterior
-    brain regions (parietal + occipital) in the alpha band.
-
-    More clinically specific than whole-head coherence because AD
-    preferentially disrupts posterior networks. Reduced posterior
-    alpha coherence is a strong AD indicator.
-    """
-    # Find which channels are posterior
+    """Posterior Alpha Coherence — pairwise mean across posterior channels."""
     posterior_indices = []
     for i, ch in enumerate(ch_names):
         if ch in POSTERIOR_CHANNELS:
@@ -416,7 +394,6 @@ def compute_posterior_alpha_coherence(data, ch_names, sfreq):
     if len(posterior_indices) < 2:
         return 0.0
 
-    # Compute pairwise coherence between all posterior pairs
     coh_values = []
     for i in range(len(posterior_indices)):
         for j in range(i + 1, len(posterior_indices)):
@@ -443,7 +420,6 @@ def compute_channel_features(eeg_signal, sfreq):
     features.update(_spectral_shape_features(eeg_signal, sfreq))
     features.update(_entropy_features(eeg_signal, sfreq))
 
-    # Additional clinical biomarkers
     features["lzc"] = compute_lzc(eeg_signal)
     features["iaf"] = compute_iaf(eeg_signal, sfreq)
     features["pdf"] = compute_pdf(eeg_signal, sfreq)
@@ -456,17 +432,10 @@ def compute_channel_features(eeg_signal, sfreq):
 # =============================================================================
 
 def compute_regional_features(data, ch_names, sfreq):
-    """
-    Compute biomarker features grouped by brain region.
-
-    Returns
-    -------
-    dict: {region_name: {feature_name: mean_value}}
-    """
+    """Compute biomarker features grouped by brain region (nan-safe)."""
     regional = {}
 
     for region, region_channels in REGIONS.items():
-        # Find which channels from this recording belong to this region
         region_indices = []
         matched_channels = []
         for i, ch in enumerate(ch_names):
@@ -477,16 +446,14 @@ def compute_regional_features(data, ch_names, sfreq):
         if not region_indices:
             continue
 
-        # Compute features for each channel in the region, then average
         all_feats = []
         for idx in region_indices:
             all_feats.append(compute_channel_features(data[idx], sfreq))
 
-        # Average across channels in this region
         feat_names = list(all_feats[0].keys())
         mean_feats = {}
         for f in feat_names:
-            mean_feats[f] = float(np.nanmean([ch[f] for ch in all_feats]))
+            mean_feats[f] = _safe_nanmean([ch[f] for ch in all_feats])
 
         mean_feats["_channels"] = matched_channels
         regional[region] = mean_feats
@@ -503,36 +470,9 @@ def compute_reference_ranges(dataset_path, n_subjects=None,
     """
     Compute reference ranges for healthy, AD, and FTD groups.
 
-    Call this once to build the reference, then pass it to
-    extract_biomarkers().
-
-    Parameters
-    ----------
-    dataset_path : str
-        Path to the Kaggle integrated_eeg_dataset.npz file.
-    n_subjects : int, optional
-        Limit subjects per group (for quick testing).
-    groups : list of str, optional
-        Which diagnosis groups to compute. Default: ["healthy", "AD", "FTD"]
-    per_source : bool
-        If True, also compute per-source-dataset ranges (to handle
-        different recording conditions like eyes open vs closed).
-
-    Returns
-    -------
-    dict with structure:
-        {
-            "overall": {
-                "healthy": {region: {feature: {"mean", "std", "low", "high"}}},
-                "AD":      {region: {feature: {"mean", "std", "low", "high"}}},
-                "FTD":     {region: {feature: {"mean", "std", "low", "high"}}},
-            },
-            "per_source": {   # only if per_source=True
-                "ADFTD": {"healthy": {...}, "AD": {...}},
-                "AD-Auditory": {"healthy": {...}, "AD": {...}},
-                ...
-            }
-        }
+    Each feature now stores BOTH:
+      - mean / std / low / high (mean ± 2σ — legacy)
+      - p05 / p95 (5th / 95th percentile — robust, used by default)
     """
     from load_kaggle_data import (
         load_dataset, get_subject_chunks, chunk_to_channel_first,
@@ -544,10 +484,8 @@ def compute_reference_ranges(dataset_path, n_subjects=None,
 
     dataset = load_dataset(dataset_path)
 
-    # Collect features: {group: {region: {feature: [values...]}}}
     overall_values = {g: {} for g in groups}
-    source_values = {}  # {source: {group: {region: {feature: [values...]}}}}
-
+    source_values = {}
     group_counts = {g: 0 for g in groups}
 
     for subj_key, subj_data in dataset["subjects"].items():
@@ -569,7 +507,6 @@ def compute_reference_ranges(dataset_path, n_subjects=None,
         if n_subjects and group_counts[diag] > n_subjects:
             continue
 
-        # Sample a few chunks per subject (not all — too slow)
         sample_n = min(3, chunks.shape[0])
         for i in range(sample_n):
             ch_data = chunk_to_channel_first(chunks[i])
@@ -578,7 +515,6 @@ def compute_reference_ranges(dataset_path, n_subjects=None,
             )
 
             for region, feats in regional.items():
-                # Overall collection
                 if region not in overall_values[diag]:
                     overall_values[diag][region] = {}
                 for f, v in feats.items():
@@ -588,7 +524,6 @@ def compute_reference_ranges(dataset_path, n_subjects=None,
                         overall_values[diag][region][f] = []
                     overall_values[diag][region][f].append(v)
 
-                # Per-source collection
                 if per_source:
                     if source not in source_values:
                         source_values[source] = {g: {} for g in groups}
@@ -601,21 +536,29 @@ def compute_reference_ranges(dataset_path, n_subjects=None,
                             source_values[source][diag][region][f] = []
                         source_values[source][diag][region][f].append(v)
 
-    # --- Convert to mean/std/ranges ---
     def _values_to_stats(values_dict):
-        """Convert {region: {feature: [values]}} to stats."""
+        """Convert {region: {feature: [values]}} to stats with both
+        Gaussian and percentile bounds. Drops NaN/inf before computing."""
         result = {}
         for region, feats in values_dict.items():
             result[region] = {}
             for f, vals in feats.items():
-                vals = np.array(vals)
+                vals = np.asarray(vals, dtype=float)
+                vals = vals[np.isfinite(vals)]
+                if vals.size == 0:
+                    continue
                 m = float(np.mean(vals))
                 s = float(np.std(vals))
+                p05 = float(np.percentile(vals, 5))
+                p95 = float(np.percentile(vals, 95))
                 result[region][f] = {
                     "mean": m,
                     "std": s,
                     "low": m - 2 * s,
                     "high": m + 2 * s,
+                    "p05": p05,
+                    "p95": p95,
+                    "n": int(vals.size),
                 }
         return result
 
@@ -653,13 +596,10 @@ def load_reference_ranges(path="healthy_reference.npz"):
 # =============================================================================
 
 def flag_abnormalities(regional_features, reference=None,
-                       condition="unknown", source=None):
+                       condition="unknown", source=None,
+                       use_percentiles=True):
     """
     Compare regional features against healthy and AD reference ranges.
-
-    Uses per-source ranges when available (tighter, same equipment).
-    Falls back to overall ranges if source isn't specified or doesn't
-    have enough data.
 
     Parameters
     ----------
@@ -671,39 +611,34 @@ def flag_abnormalities(regional_features, reference=None,
         Recording condition. Suppresses expected features.
     source : str, optional
         Source dataset (e.g., "ADFTD"). Uses tighter per-source ranges.
-
-    Returns
-    -------
-    list of dict: each flag has region, feature, value, status, detail
+    use_percentiles : bool
+        If True (default), use 5th/95th percentile cutoffs from the
+        healthy distribution. Robust to skewed features. If False,
+        fall back to mean ± 2σ (legacy behavior, prone to false
+        positives on skewed features like theta_alpha_ratio).
     """
     flags = []
 
-    # Get features to suppress based on recording condition
     cond_info = RECORDING_CONDITIONS.get(condition, RECORDING_CONDITIONS["unknown"])
     suppress = set(cond_info.get("suppress_flags", []))
 
-    # Pick the best available reference ranges
-    # Priority: per-source > per-condition > overall
     healthy_ref = {}
     ad_ref = {}
     ftd_ref = {}
 
     if reference and "per_source" in reference:
-        # Try source-specific ranges first (e.g., "ADFTD")
         if source:
             source_ref = reference["per_source"].get(source, {})
             healthy_ref = source_ref.get("healthy", {})
             ad_ref = source_ref.get("AD", {})
             ftd_ref = source_ref.get("FTD", {})
 
-        # Try condition-specific ranges (e.g., "photic_stimulation")
         if not healthy_ref and condition != "unknown":
             cond_ref = reference["per_source"].get(condition, {})
             healthy_ref = cond_ref.get("healthy", {})
             ad_ref = cond_ref.get("AD", {})
             ftd_ref = cond_ref.get("FTD", {})
 
-    # Fall back to overall if nothing matched
     if not healthy_ref and reference and "overall" in reference:
         healthy_ref = reference["overall"].get("healthy", {})
         ad_ref = reference["overall"].get("AD", {})
@@ -716,7 +651,6 @@ def flag_abnormalities(regional_features, reference=None,
     if not healthy_ref:
         return flags
 
-    # AD-expected directions for key features
     ad_directions = {
         "theta_power":          "elevated",
         "delta_power":          "elevated",
@@ -743,17 +677,14 @@ def flag_abnormalities(regional_features, reference=None,
                 continue
             if feat_name not in ad_directions:
                 continue
-            # Skip features that are expected to be abnormal for this condition
             if feat_name in suppress:
                 continue
 
             direction = ad_directions[feat_name]
 
-            # Skip NaN/inf values (e.g., IAF when no alpha, PDF edge cases)
             if np.isnan(value) or np.isinf(value):
                 continue
 
-            # Check against healthy range
             h_ref = healthy_ref.get(region, {}).get(feat_name)
             if not h_ref:
                 continue
@@ -766,26 +697,32 @@ def flag_abnormalities(regional_features, reference=None,
             else:
                 z_score = 0
 
-            # Is it outside healthy range in the AD direction?
+            # Pick the cutoff style
+            if use_percentiles and "p05" in h_ref and "p95" in h_ref:
+                low_cut, high_cut = h_ref["p05"], h_ref["p95"]
+                cutoff_label = "5th–95th pct"
+            else:
+                low_cut, high_cut = h_ref["low"], h_ref["high"]
+                cutoff_label = "mean ± 2σ"
+
             outside_healthy = False
-            if direction == "elevated" and value > h_ref["high"]:
+            if direction == "elevated" and value > high_cut:
                 outside_healthy = True
-            elif direction == "reduced" and value < h_ref["low"]:
+            elif direction == "reduced" and value < low_cut:
                 outside_healthy = True
 
             if not outside_healthy:
                 continue
 
-            # Check where it falls relative to AD range
             a_ref = ad_ref.get(region, {}).get(feat_name)
             status = "abnormal"
 
             if a_ref:
-                a_mean = a_ref["mean"]
-                a_low = a_ref["low"]
-                a_high = a_ref["high"]
+                if use_percentiles and "p05" in a_ref and "p95" in a_ref:
+                    a_low, a_high = a_ref["p05"], a_ref["p95"]
+                else:
+                    a_low, a_high = a_ref["low"], a_ref["high"]
 
-                # Is the value within the AD range?
                 if a_low <= value <= a_high:
                     status = "within_AD_range"
                 elif direction == "elevated" and value > a_high:
@@ -795,11 +732,14 @@ def flag_abnormalities(regional_features, reference=None,
                 else:
                     status = "between_healthy_and_AD"
 
-            # Check FTD range too
             f_ref = ftd_ref.get(region, {}).get(feat_name)
             ftd_match = False
             if f_ref:
-                if f_ref["low"] <= value <= f_ref["high"]:
+                if use_percentiles and "p05" in f_ref and "p95" in f_ref:
+                    f_low, f_high = f_ref["p05"], f_ref["p95"]
+                else:
+                    f_low, f_high = f_ref["low"], f_ref["high"]
+                if f_low <= value <= f_high:
                     ftd_match = True
 
             flags.append({
@@ -809,15 +749,18 @@ def flag_abnormalities(regional_features, reference=None,
                 "direction": direction,
                 "z_score": z_score,
                 "status": status,
-                "healthy_range": f"{h_ref['low']:.3f} – {h_ref['high']:.3f}",
+                "cutoff_style": cutoff_label,
+                "healthy_range": f"{low_cut:.3f} – {high_cut:.3f}",
                 "healthy_mean": h_mean,
                 "ad_mean": a_ref["mean"] if a_ref else None,
-                "ad_range": (f"{a_ref['low']:.3f} – {a_ref['high']:.3f}"
-                             if a_ref else "N/A"),
+                "ad_range": (
+                    f"{a_ref.get('p05', a_ref['low']):.3f} – "
+                    f"{a_ref.get('p95', a_ref['high']):.3f}"
+                    if a_ref else "N/A"
+                ),
                 "ftd_match": ftd_match,
             })
 
-    # Sort by z-score severity
     flags.sort(key=lambda x: abs(x.get("z_score", 0)), reverse=True)
     return flags
 
@@ -827,25 +770,7 @@ def flag_abnormalities(regional_features, reference=None,
 # =============================================================================
 
 def extract_biomarkers_by_epoch(raw_eeg, event_id=None, tmin=-0.5, tmax=1.0):
-    """
-    Compute biomarkers per epoch (event-locked segments).
-
-    Use this when the EEG data has event markers (triggers).
-    Falls back to fixed-window segmentation if no events found.
-
-    Parameters
-    ----------
-    raw_eeg : mne.io.BaseRaw
-        Raw EEG with event annotations.
-    event_id : dict, optional
-        Event type mapping (e.g., {"stimulus": 1, "response": 2}).
-    tmin, tmax : float
-        Time window around each event in seconds.
-
-    Returns
-    -------
-    list of dict: one dict per epoch with biomarker values.
-    """
+    """Compute biomarkers per epoch (event-locked segments)."""
     import mne
 
     try:
@@ -862,7 +787,7 @@ def extract_biomarkers_by_epoch(raw_eeg, event_id=None, tmin=-0.5, tmax=1.0):
 
         epoch_features = []
         for i in range(len(epochs)):
-            epoch_data = epochs[i].get_data()[0]  # (n_channels, n_samples)
+            epoch_data = epochs[i].get_data()[0]
             regional = compute_regional_features(epoch_data, ch_names, sfreq)
             epoch_features.append({
                 "epoch_idx": i,
@@ -878,215 +803,18 @@ def extract_biomarkers_by_epoch(raw_eeg, event_id=None, tmin=-0.5, tmax=1.0):
 
 
 # =============================================================================
-# FORMATTED OUTPUT — for LLM reasoning stage
-# =============================================================================
-
-def format_for_llm(regional_features, subject_id="unknown",
-                   diagnosis_prob=None, flags=None,
-                   posterior_coh=None, segment_flags=None,
-                   condition="unknown"):
-    """
-    Format biomarker results as a clinical report for the LLM.
-
-    Parameters
-    ----------
-    regional_features : dict
-        Output from compute_regional_features().
-    subject_id : str
-        Patient identifier.
-    diagnosis_prob : float, optional
-        AD probability from EEGPT (0-1).
-    flags : list, optional
-        Output from flag_abnormalities().
-    posterior_coh : float, optional
-        Posterior alpha coherence value.
-    segment_flags : list, optional
-        Per-segment flagging results.
-    condition : str
-        Recording condition identifier.
-
-    Returns
-    -------
-    str — formatted clinical report for LLM input.
-    """
-    cond_info = RECORDING_CONDITIONS.get(condition,
-                                         RECORDING_CONDITIONS["unknown"])
-
-    lines = []
-    lines.append(f"=== EEG Biomarker Report: Subject {subject_id} ===")
-    lines.append("")
-
-    # Recording condition
-    lines.append(f"Recording condition: {cond_info['label']}")
-    lines.append(f"  {cond_info['description']}")
-    lines.append("")
-
-    if diagnosis_prob is not None:
-        lines.append(f"EEGPT AD Classification Probability: {diagnosis_prob:.2%}")
-        lines.append("")
-
-    # --- Regional analysis ---
-    key_features = [
-        "theta_power", "alpha_power", "theta_alpha_ratio",
-        "theta_relative_power", "alpha_relative_power",
-        "spectral_centroid", "spectral_peak", "iaf",
-        "pdf", "spectral_entropy", "lzc"
-    ]
-
-    for region in ["frontal", "temporal", "parietal", "occipital", "central"]:
-        if region not in regional_features:
-            continue
-
-        feats = regional_features[region]
-        channels = feats.get("_channels", [])
-        ch_str = ", ".join(channels)
-
-        lines.append(f"--- {region.upper()} ({ch_str}) ---")
-        lines.append(f"  Clinical note: {REGION_AD_NOTES.get(region, '')}")
-
-        for f in key_features:
-            if f not in feats:
-                continue
-            v = feats[f]
-
-            # Check if this feature is flagged
-            flag_marker = ""
-            if flags:
-                for fl in flags:
-                    if fl["region"] == region and fl["feature"] == f:
-                        status = fl.get("status", "abnormal")
-                        if status == "within_AD_range":
-                            flag_marker = (
-                                f"  ⚠ {fl['direction'].upper()} "
-                                f"(healthy: {fl['healthy_range']}, "
-                                f"AD: {fl['ad_range']}) — consistent with AD")
-                        elif status == "exceeds_AD_range":
-                            flag_marker = (
-                                f"  ⚠⚠ {fl['direction'].upper()} "
-                                f"(outside both healthy and AD ranges)")
-                        elif status == "between_healthy_and_AD":
-                            flag_marker = (
-                                f"  ⚠ {fl['direction'].upper()} "
-                                f"(healthy: {fl['healthy_range']}) "
-                                f"— borderline")
-                        else:
-                            flag_marker = (
-                                f"  ⚠ {fl['direction'].upper()} "
-                                f"(healthy: {fl['healthy_range']})")
-
-                        if fl.get("ftd_match"):
-                            flag_marker += " [also within FTD range]"
-                        break
-
-            # Format based on feature type
-            if f in ["spectral_centroid", "spectral_peak", "iaf",
-                      "median_frequency"]:
-                lines.append(f"  {f:30s} {v:>8.2f} Hz{flag_marker}")
-            elif f in ["spectral_entropy", "lzc"]:
-                lines.append(f"  {f:30s} {v:>8.4f}{flag_marker}")
-            else:
-                lines.append(f"  {f:30s} {v:>8.4f}{flag_marker}")
-
-        lines.append("")
-
-    # --- Posterior alpha coherence ---
-    if posterior_coh is not None:
-        lines.append("--- POSTERIOR CONNECTIVITY ---")
-        lines.append(f"  Posterior alpha coherence:  {posterior_coh:.4f}")
-        lines.append(f"  (Measures synchronization between parietal/occipital regions)")
-        if posterior_coh < 0.3:
-            lines.append(f"  ⚠ REDUCED — consistent with disrupted posterior networks in AD")
-        lines.append("")
-
-    # --- Per-segment consistency ---
-    if segment_flags:
-        n_total = segment_flags["total"]
-        n_flagged = segment_flags["flagged"]
-        pct = (n_flagged / n_total * 100) if n_total > 0 else 0
-        lines.append("--- TEMPORAL CONSISTENCY ---")
-        lines.append(f"  Segments analyzed: {n_total}")
-        lines.append(f"  Segments with AD-like patterns: {n_flagged} ({pct:.0f}%)")
-        if pct > 50:
-            lines.append(f"  ⚠ Majority of recording shows AD-like patterns")
-        elif pct > 25:
-            lines.append(f"  Intermittent AD-like patterns detected")
-        else:
-            lines.append(f"  AD-like patterns are infrequent")
-        lines.append("")
-
-    # --- AD indicator summary ---
-    lines.append("--- AD INDICATOR SUMMARY ---")
-    if flags is None:
-        # No reference ranges were provided at all
-        lines.append("  No reference ranges provided for comparison.")
-        lines.append("  See regional values above for manual interpretation.")
-    elif len(flags) == 0:
-        # Reference was provided but no abnormalities found
-        lines.append("  All features within healthy reference ranges.")
-        lines.append("  No AD-associated abnormalities detected.")
-    else:
-        # Group flags by clinical pattern
-        has_posterior_alpha = any(
-            f["region"] in ["occipital", "parietal"]
-            and f["feature"] in ["alpha_power", "alpha_relative_power", "iaf"]
-            for f in flags
-        )
-        has_theta_increase = any(
-            f["feature"] in ["theta_power", "theta_relative_power",
-                             "theta_alpha_ratio"]
-            for f in flags
-        )
-        has_complexity_drop = any(
-            f["feature"] in ["spectral_entropy", "lzc"]
-            for f in flags
-        )
-        has_slowing = any(
-            f["feature"] in ["spectral_centroid", "spectral_peak",
-                             "iaf", "pdf"]
-            for f in flags
-        )
-
-        if has_posterior_alpha:
-            lines.append("  * Posterior alpha reduction — consistent with "
-                         "thalamocortical circuit disruption")
-        if has_theta_increase:
-            regions_affected = set(f["region"] for f in flags
-                                   if f["feature"] in ["theta_power",
-                                                        "theta_relative_power"])
-            lines.append(f"  * Theta elevation in {', '.join(regions_affected)} — "
-                         "consistent with cholinergic deficit / hippocampal damage")
-        if has_complexity_drop:
-            lines.append("  * Reduced signal complexity — consistent with "
-                         "neuronal network degradation")
-        if has_slowing:
-            lines.append("  * Spectral slowing — consistent with "
-                         "cortical hypoactivation in AD")
-
-        if not any([has_posterior_alpha, has_theta_increase,
-                    has_complexity_drop, has_slowing]):
-            for f in flags[:5]:
-                lines.append(f"  * {f['feature']} {f['direction']} in "
-                             f"{f['region']} (z={f.get('z_score', 0):.1f})")
-
-    return "\n".join(lines)
-
-
-# =============================================================================
 # TIERED ANALYSIS — per-segment screening and flagging
 # =============================================================================
 
 def screen_segment(data, ch_names, sfreq, reference=None,
-                   condition="unknown", source=None):
-    """
-    Tier 1: Screen one segment using normalized features only.
-
-    Returns regional features and any flags found.
-    """
+                   condition="unknown", source=None,
+                   use_percentiles=True):
+    """Tier 1: Screen one segment using normalized features only."""
     regional = compute_regional_features(data, ch_names, sfreq)
 
     if reference:
-        flags = flag_abnormalities(regional, reference, condition, source)
-        # Keep only normalized feature flags for screening
+        flags = flag_abnormalities(regional, reference, condition, source,
+                                   use_percentiles=use_percentiles)
         flags = [f for f in flags if f["feature"] in NORMALIZED_FEATURES]
     else:
         flags = []
@@ -1096,58 +824,43 @@ def screen_segment(data, ch_names, sfreq, reference=None,
 
 def analyze_segments(segments, ch_names, sfreq, reference=None,
                      condition="unknown", source=None,
-                     segment_duration=None):
+                     segment_duration=None,
+                     persistence_threshold=DEFAULT_PERSISTENCE_THRESHOLD,
+                     use_percentiles=True):
     """
     Run tiered analysis on multiple segments from one subject.
 
-    Tier 1: Screen each segment with normalized features.
-    Tier 2: Identify which segments are flagged and report temporal pattern.
-    Tier 3: For flagged segments, compute per-channel detail.
+    NEW (v4): A feature counts as "persistently abnormal" only if BOTH:
+      (a) The recording-level average (across all segments) is itself
+          flagged against the healthy reference, AND
+      (b) The feature was flagged in at least `persistence_threshold`
+          fraction of individual segments.
 
-    Parameters
-    ----------
-    segments : array, shape (n_segments, n_channels, n_samples)
-        Multiple EEG segments (channels-first per segment).
-    ch_names : list of str
-        Channel names.
-    sfreq : float
-        Sampling rate.
-    reference : dict, optional
-        Reference ranges.
-    condition : str
-        Recording condition.
-    source : str, optional
-        Source dataset for per-source ranges.
-    segment_duration : float, optional
-        Duration of each segment in seconds (for reporting).
+    This kills two false-positive sources:
+      - Random per-segment fluctuations that happen to cross the cutoff
+        on a few segments but don't shift the recording average
+      - Recording averages that are barely abnormal but driven by a few
+        outlier segments rather than persistent biology
 
-    Returns
-    -------
-    dict with keys:
-        "n_segments"         : int
-        "segment_duration"   : float (seconds per segment)
-        "flagged_indices"    : list of int (which segments were flagged)
-        "flag_summary"       : dict {(region, feature): [segment indices]}
-        "per_segment_flags"  : list of lists (flags per segment)
-        "flagged_detail"     : dict per-channel averages for flagged segments
-        "overall_regional"   : regional features averaged across ALL segments
-        "posterior_coherence" : float
+    Returns dict with both raw (flag_summary) and filtered
+    (persistent_flags) results so downstream code can choose either view.
     """
     n_segments = segments.shape[0]
 
     if segment_duration is None:
         segment_duration = segments.shape[2] / sfreq
 
-    # --- Tier 1: Screen every segment ---
+    # --- Tier 1: screen every segment ---
     all_regional = []
     all_flags = []
     flagged_indices = []
-    flag_summary = {}  # {(region, feature): [segment_indices]}
+    flag_summary = {}
 
     for seg_idx in range(n_segments):
-        seg_data = segments[seg_idx]  # (n_channels, n_samples)
+        seg_data = segments[seg_idx]
         regional, flags = screen_segment(
-            seg_data, ch_names, sfreq, reference, condition, source
+            seg_data, ch_names, sfreq, reference, condition, source,
+            use_percentiles=use_percentiles,
         )
         all_regional.append(regional)
         all_flags.append(flags)
@@ -1160,7 +873,7 @@ def analyze_segments(segments, ch_names, sfreq, reference=None,
                     flag_summary[key] = []
                 flag_summary[key].append(seg_idx)
 
-    # --- Tier 2: Overall averages across all segments ---
+    # --- Tier 2a: overall averages across all segments (nan-safe) ---
     regions = list(all_regional[0].keys())
     feat_names = [f for f in all_regional[0][regions[0]].keys()
                   if not f.startswith("_")]
@@ -1176,44 +889,66 @@ def analyze_segments(segments, ch_names, sfreq, reference=None,
                     if region in all_regional[i]
                     and feat in all_regional[i][region]]
             if vals:
-                overall_regional[region][feat] = float(np.mean(vals))
+                # nanmean — a few NaN segments (e.g. IAF with no alpha)
+                # used to poison the entire recording's average.
+                overall_regional[region][feat] = _safe_nanmean(vals)
 
-    # --- Tier 3: Per-channel detail for flagged segments ---
+    # --- Tier 2b: recording-level flags on the averages ---
+    if reference:
+        recording_level_flags = flag_abnormalities(
+            overall_regional, reference, condition, source,
+            use_percentiles=use_percentiles,
+        )
+        recording_level_flags = [f for f in recording_level_flags
+                                 if f["feature"] in NORMALIZED_FEATURES]
+    else:
+        recording_level_flags = []
+
+    recording_level_keys = {(f["region"], f["feature"])
+                            for f in recording_level_flags}
+
+    # --- Tier 2c: filter by persistence + recording-level ---
+    min_segments = max(1, int(np.ceil(persistence_threshold * n_segments)))
+    persistent_flags = {}
+    for key, seg_indices in flag_summary.items():
+        if len(seg_indices) < min_segments:
+            continue
+        if key not in recording_level_keys:
+            continue
+        persistent_flags[key] = seg_indices
+
+    # --- Tier 3: per-channel detail for persistent flags only ---
     flagged_detail = {}
-    if flagged_indices:
-        for (region, feature), seg_indices in flag_summary.items():
-            region_channels = REGIONS.get(region, [])
-            # Find channel indices
-            ch_indices = [i for i, ch in enumerate(ch_names)
-                          if ch in region_channels]
+    for (region, feature), seg_indices in persistent_flags.items():
+        region_channels = REGIONS.get(region, [])
+        ch_indices = [i for i, ch in enumerate(ch_names)
+                      if ch in region_channels]
+        if not ch_indices:
+            continue
 
-            if not ch_indices:
-                continue
+        per_channel = {}
+        for ch_idx in ch_indices:
+            ch_name = ch_names[ch_idx]
+            vals = []
+            for seg_idx in seg_indices:
+                seg_feats = compute_channel_features(
+                    segments[seg_idx][ch_idx], sfreq
+                )
+                if feature in seg_feats:
+                    vals.append(seg_feats[feature])
+            vals = [v for v in vals if np.isfinite(v)]
+            if vals:
+                per_channel[ch_name] = {
+                    "mean": float(np.mean(vals)),
+                    "std": float(np.std(vals)),
+                    "min": float(np.min(vals)),
+                    "max": float(np.max(vals)),
+                }
 
-            # Compute the flagged feature per channel, averaged across
-            # flagged segments only
-            per_channel = {}
-            for ch_idx in ch_indices:
-                ch_name = ch_names[ch_idx]
-                vals = []
-                for seg_idx in seg_indices:
-                    seg_feats = compute_channel_features(
-                        segments[seg_idx][ch_idx], sfreq
-                    )
-                    if feature in seg_feats:
-                        vals.append(seg_feats[feature])
-                if vals:
-                    per_channel[ch_name] = {
-                        "mean": float(np.mean(vals)),
-                        "std": float(np.std(vals)),
-                        "min": float(np.min(vals)),
-                        "max": float(np.max(vals)),
-                    }
-
-            flagged_detail[(region, feature)] = {
-                "segments": seg_indices,
-                "per_channel": per_channel,
-            }
+        flagged_detail[(region, feature)] = {
+            "segments": seg_indices,
+            "per_channel": per_channel,
+        }
 
     # --- Posterior coherence (average across all segments) ---
     coh_vals = []
@@ -1222,15 +957,18 @@ def analyze_segments(segments, ch_names, sfreq, reference=None,
             segments[seg_idx], ch_names, sfreq
         )
         coh_vals.append(coh)
-    post_coh = float(np.nanmean(coh_vals)) if coh_vals else 0.0
+    post_coh = _safe_nanmean(coh_vals) if coh_vals else 0.0
     if np.isnan(post_coh):
         post_coh = 0.0
 
     return {
         "n_segments": n_segments,
         "segment_duration": segment_duration,
+        "persistence_threshold": persistence_threshold,
         "flagged_indices": flagged_indices,
         "flag_summary": flag_summary,
+        "persistent_flags": persistent_flags,
+        "recording_level_flags": recording_level_flags,
         "per_segment_flags": all_flags,
         "flagged_detail": flagged_detail,
         "overall_regional": overall_regional,
@@ -1243,24 +981,20 @@ def format_tiered_report(analysis, subject_id="unknown",
     """
     Format the tiered analysis into a clinical report for the LLM.
 
-    Parameters
-    ----------
-    analysis : dict
-        Output from analyze_segments().
-    subject_id : str
-    diagnosis_prob : float, optional
-    condition : str
-
-    Returns
-    -------
-    str — formatted report
+    The AD INDICATOR SUMMARY now drives off persistent_flags (which already
+    requires recording-level + persistence agreement), not "any segment ever
+    flagged."
     """
     cond_info = RECORDING_CONDITIONS.get(condition,
                                          RECORDING_CONDITIONS["unknown"])
     seg_dur = analysis["segment_duration"]
     n_seg = analysis["n_segments"]
+    persistence = analysis.get("persistence_threshold",
+                               DEFAULT_PERSISTENCE_THRESHOLD)
+
     n_flagged = len(analysis["flagged_indices"])
     pct_flagged = (n_flagged / n_seg * 100) if n_seg > 0 else 0
+    persistent = analysis.get("persistent_flags", {})
 
     lines = []
     lines.append(f"=== EEG Biomarker Report: Subject {subject_id} ===")
@@ -1268,6 +1002,8 @@ def format_tiered_report(analysis, subject_id="unknown",
     lines.append(f"Recording condition: {cond_info['label']}")
     lines.append(f"  {cond_info['description']}")
     lines.append(f"Segments analyzed: {n_seg} (each {seg_dur:.1f}s)")
+    lines.append(f"Persistence threshold for flagging: "
+                 f"{persistence*100:.0f}% of segments")
     lines.append("")
 
     if diagnosis_prob is not None:
@@ -1282,6 +1018,8 @@ def format_tiered_report(analysis, subject_id="unknown",
         "spectral_entropy", "lzc"
     ]
 
+    persistent_keys = set(persistent.keys())
+
     for region in ["frontal", "temporal", "parietal", "occipital", "central"]:
         if region not in analysis["overall_regional"]:
             continue
@@ -1292,11 +1030,12 @@ def format_tiered_report(analysis, subject_id="unknown",
         for f in key_features:
             if f in feats:
                 v = feats[f]
+                marker = "  ⚠" if (region, f) in persistent_keys else ""
                 if f in ["spectral_centroid", "spectral_peak", "iaf",
                           "median_frequency"]:
-                    lines.append(f"    {f:28s} {v:>8.2f} Hz")
+                    lines.append(f"    {f:28s} {v:>8.2f} Hz{marker}")
                 else:
-                    lines.append(f"    {f:28s} {v:>8.4f}")
+                    lines.append(f"    {f:28s} {v:>8.4f}{marker}")
         lines.append("")
 
     # --- Posterior coherence ---
@@ -1308,11 +1047,18 @@ def format_tiered_report(analysis, subject_id="unknown",
 
     # --- Temporal consistency ---
     lines.append("--- TEMPORAL CONSISTENCY ---")
-    lines.append(f"Segments with AD-like patterns: "
+    lines.append(f"Segments with any AD-like pattern: "
                  f"{n_flagged}/{n_seg} ({pct_flagged:.0f}%)")
+    n_persistent = len(persistent)
+    lines.append(f"Persistently flagged features (≥{persistence*100:.0f}% "
+                 f"of segments AND recording avg abnormal): {n_persistent}")
 
-    if n_flagged == 0:
-        lines.append("  No segments showed AD-associated abnormalities.")
+    if n_persistent == 0:
+        lines.append("  No persistent AD-associated abnormalities detected.")
+        if pct_flagged > 0:
+            lines.append("  (Some individual segments showed transient flags, "
+                         "but they did not persist or shift the overall "
+                         "recording average — this is expected variation.)")
         lines.append("")
     else:
         if pct_flagged > 75:
@@ -1322,41 +1068,52 @@ def format_tiered_report(analysis, subject_id="unknown",
         elif pct_flagged > 15:
             lines.append("  Intermittent AD-like patterns")
         else:
-            lines.append("  Occasional AD-like patterns (may be transient)")
+            lines.append("  Occasional AD-like patterns")
         lines.append("")
 
-        # --- Flagged segment details ---
-        lines.append("--- FLAGGED SEGMENTS (detailed) ---")
+        # --- Persistently-flagged feature details ---
+        lines.append("--- PERSISTENTLY FLAGGED FEATURES (detailed) ---")
 
         for (region, feature), detail in analysis["flagged_detail"].items():
             seg_indices = detail["segments"]
-            seg_str = ", ".join(str(s + 1) for s in seg_indices)
+            n_flagged_for_feat = len(seg_indices)
+            pct_for_feat = n_flagged_for_feat / n_seg * 100
+            seg_str = ", ".join(str(s + 1) for s in seg_indices[:30])
+            if len(seg_indices) > 30:
+                seg_str += f", ... ({len(seg_indices)} total)"
             per_ch = detail["per_channel"]
             ch_str = ", ".join(per_ch.keys())
 
-            lines.append(f"  {feature} — {region.upper()}")
+            lines.append(f"  {feature} — {region.upper()} "
+                         f"[{n_flagged_for_feat}/{n_seg} segments, "
+                         f"{pct_for_feat:.0f}%]")
             lines.append(f"    Flagged in segments: {seg_str}")
             lines.append(f"    Channels: {ch_str}")
             lines.append(f"    Per-channel averages (across flagged segments):")
 
-            for ch_name, stats in per_ch.items():
+            for ch_name, st in per_ch.items():
                 if feature in ["spectral_centroid", "spectral_peak",
                                "iaf", "median_frequency"]:
-                    lines.append(f"      {ch_name}: {stats['mean']:.2f} Hz "
-                                 f"(range: {stats['min']:.2f}–{stats['max']:.2f})")
+                    lines.append(f"      {ch_name}: {st['mean']:.2f} Hz "
+                                 f"(range: {st['min']:.2f}–{st['max']:.2f})")
                 else:
-                    lines.append(f"      {ch_name}: {stats['mean']:.4f} "
-                                 f"(range: {stats['min']:.4f}–{stats['max']:.4f})")
+                    lines.append(f"      {ch_name}: {st['mean']:.4f} "
+                                 f"(range: {st['min']:.4f}–{st['max']:.4f})")
             lines.append("")
 
     # --- Clinical pattern summary ---
     lines.append("--- AD INDICATOR SUMMARY ---")
-    if n_flagged == 0 and analysis["flag_summary"]:
-        lines.append("  All features within reference ranges.")
-    elif n_flagged == 0:
-        lines.append("  No reference ranges provided for comparison.")
+    if not persistent:
+        if any(analysis.get("per_segment_flags", [])):
+            lines.append("  No persistent abnormalities at the recording "
+                         "level. Per-segment fluctuations did not exceed "
+                         "the persistence threshold and the overall "
+                         "averages are within healthy reference ranges.")
+        else:
+            lines.append("  No reference ranges provided, or all features "
+                         "within healthy reference ranges.")
     else:
-        flag_keys = analysis["flag_summary"].keys()
+        flag_keys = persistent.keys()
         has_posterior_alpha = any(
             r in ["occipital", "parietal"]
             and f in ["alpha_relative_power", "iaf"]
@@ -1379,9 +1136,9 @@ def format_tiered_report(analysis, subject_id="unknown",
             lines.append("  * Posterior alpha reduction — consistent with "
                          "thalamocortical circuit disruption")
         if has_theta:
-            regions = set(r for r, f in flag_keys
-                          if f in ["theta_alpha_ratio",
-                                   "theta_relative_power", "pdf"])
+            regions = sorted(set(r for r, f in flag_keys
+                                  if f in ["theta_alpha_ratio",
+                                           "theta_relative_power", "pdf"]))
             lines.append(f"  * Theta/slow-wave elevation in "
                          f"{', '.join(regions)} — consistent with "
                          "cholinergic deficit / hippocampal damage")
@@ -1394,7 +1151,7 @@ def format_tiered_report(analysis, subject_id="unknown",
 
         if not any([has_posterior_alpha, has_theta,
                     has_complexity, has_slowing]):
-            for (r, f), indices in list(analysis["flag_summary"].items())[:5]:
+            for (r, f), indices in list(persistent.items())[:5]:
                 lines.append(f"  * {f} abnormal in {r} "
                              f"({len(indices)}/{n_seg} segments)")
 
@@ -1407,43 +1164,24 @@ def format_tiered_report(analysis, subject_id="unknown",
 
 def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
                        diagnosis_prob=None, save_to=None,
-                       reference=None, condition="unknown"):
+                       reference=None, condition="unknown",
+                       persistence_threshold=DEFAULT_PERSISTENCE_THRESHOLD,
+                       use_percentiles=True):
     """
     One-liner biomarker extraction for the pipeline notebook.
 
-    Accepts single segments, multiple segments, MNE Raw objects,
-    or file paths. Auto-detects recording condition and source
-    from subject ID when possible.
-
-    In complete_pipeline.ipynb:
+    Notebook usage (unchanged):
         biomarkers = extract_biomarkers(eeg)
         biomarkers = extract_biomarkers(eeg, reference=ref, save_to="report.txt")
 
-    Parameters
-    ----------
-    eeg_input : str, mne.io.BaseRaw, or numpy array
-        - str: path to .set/.edf/.fif file
-        - mne.io.BaseRaw: from LJ's preprocess_file()
-        - 2D numpy array (n_channels, n_samples): single segment
-        - 3D numpy array (n_segments, n_channels, n_samples): multi-segment
-    sfreq : float
-        Sampling rate. Only needed for numpy input. Default 128.
-    subject_id : str, optional
-        Patient ID for the report.
-    diagnosis_prob : float, optional
-        EEGPT AD probability (0-1).
-    save_to : str, optional
-        Save report to this file path.
-    reference : dict, optional
-        Reference ranges from compute_reference_ranges().
-    condition : str
-        Recording condition or "unknown" for auto-detection.
-
-    Returns
-    -------
-    str — the formatted LLM report text
+    NEW parameters (with safe defaults):
+    persistence_threshold : float
+        Fraction of segments that must show a flag for a feature to count
+        as persistent. Default 0.25 (25%).
+    use_percentiles : bool
+        If True (default), use 5th/95th percentile cutoffs from healthy
+        reference. If False, use mean ± 2σ (legacy behavior).
     """
-    # --- Detect input type and build segments array ---
     ch_names = [
         'Fp1', 'Fp2', 'F7', 'F3', 'Fz', 'F4', 'F8',
         'T3', 'C3', 'Cz', 'C4', 'T4',
@@ -1453,10 +1191,8 @@ def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
 
     if isinstance(eeg_input, np.ndarray):
         if eeg_input.ndim == 3:
-            # Multiple segments: (n_segments, n_channels, n_samples)
             segments = eeg_input
         elif eeg_input.ndim == 2:
-            # Single segment: (n_channels, n_samples) → (1, n_ch, n_samp)
             segments = eeg_input[np.newaxis, :, :]
         else:
             raise ValueError(f"Array must be 2D or 3D, got {eeg_input.ndim}D")
@@ -1467,10 +1203,9 @@ def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
     elif isinstance(eeg_input, str):
         import mne
         raw = mne.io.read_raw(eeg_input, preload=True)
-        data = raw.get_data()  # (n_channels, n_samples)
+        data = raw.get_data()
         sfreq = raw.info["sfreq"]
         ch_names = list(raw.ch_names)
-        # Segment into 2048-sample chunks
         window = min(2048, data.shape[1])
         n_segs = data.shape[1] // window
         if n_segs > 0:
@@ -1501,7 +1236,6 @@ def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
     # --- Auto-detect condition and source from subject ID ---
     detected_source = None
     if subject_id:
-        # Check Kaggle dataset prefixes
         for source_prefix, mapped_condition in SOURCE_TO_CONDITION.items():
             if subject_id.startswith(source_prefix):
                 detected_source = source_prefix
@@ -1509,7 +1243,6 @@ def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
                     condition = mapped_condition
                 break
 
-        # Check for photic stimulation files (eyes-open dataset)
         if condition == "unknown" and "photomark" in subject_id:
             condition = "photic_stimulation"
 
@@ -1520,9 +1253,10 @@ def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
         condition=condition,
         source=detected_source,
         segment_duration=segments.shape[2] / sfreq,
+        persistence_threshold=persistence_threshold,
+        use_percentiles=use_percentiles,
     )
 
-    # --- Format report ---
     llm_text = format_tiered_report(
         analysis,
         subject_id=subject_id,
@@ -1530,7 +1264,6 @@ def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
         condition=condition,
     )
 
-    # --- Save if requested ---
     if save_to:
         os.makedirs(os.path.dirname(save_to) or ".", exist_ok=True)
         with open(save_to, "w") as f:
@@ -1565,7 +1298,7 @@ def get_biomarkers(raw_eeg):
     feat_names = list(results["per_channel"][ch_names[0]].keys())
     for feat in feat_names:
         vals = [results["per_channel"][ch][feat] for ch in ch_names]
-        results["summary"][feat] = float(np.mean(vals))
+        results["summary"][feat] = _safe_nanmean(vals)
 
     if results["coherence"]:
         results["summary"]["phase_coherence"] = float(
@@ -1592,7 +1325,7 @@ def features_to_array(segment_features):
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Biomarker Module v3 — Tiered Analysis Test")
+    print("Biomarker Module v4 — Persistence-filtered Tiered Analysis")
     print("=" * 60)
 
     sfreq = 128
@@ -1602,42 +1335,34 @@ if __name__ == "__main__":
     np.random.seed(42)
     t = np.linspace(0, segment_samples / sfreq, segment_samples, endpoint=False)
 
-    # Create 10 segments simulating a mixed recording:
-    # Segments 0-4: healthy-ish (strong alpha)
-    # Segments 5-9: AD-ish (strong theta, weak alpha)
     segments = np.zeros((10, n_channels, segment_samples))
     for seg in range(10):
         for ch in range(n_channels):
             if seg < 5:
-                # Healthy: strong alpha
                 segments[seg, ch] = (
                     3.0 * np.sin(2 * np.pi * 10 * t)
                     + 0.5 * np.sin(2 * np.pi * 6 * t)
                     + 0.5 * np.random.randn(segment_samples)
                 )
             else:
-                # AD-like: strong theta, weak alpha
                 segments[seg, ch] = (
                     0.5 * np.sin(2 * np.pi * 10 * t)
                     + 4.0 * np.sin(2 * np.pi * 6 * t)
                     + 0.5 * np.random.randn(segment_samples)
                 )
 
-    # Test multi-segment analysis
     print("\n1. Testing multi-segment analysis (10 segments)...")
     report = extract_biomarkers(
         segments, sfreq=sfreq, subject_id="TEST-001"
     )
     print(report)
 
-    # Test single segment
     print("\n\n2. Testing single segment...")
     report = extract_biomarkers(
         segments[0], sfreq=sfreq, subject_id="SINGLE-TEST"
     )
     print(f"   Report length: {len(report)} characters")
 
-    # Test save to file
     print("\n3. Testing save_to...")
     extract_biomarkers(
         segments, sfreq=sfreq, subject_id="SAVE-TEST",

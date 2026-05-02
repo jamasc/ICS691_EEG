@@ -1,0 +1,90 @@
+=== EEG Biomarker Report: Subject sub-002_task-photomark ===
+
+Recording condition: Photic Stimulation (IPS)
+  Standard clinical protocol using flashing lights. Occipital activity is driven by external stimulus. PDF and IAF are not meaningful during stimulation.
+Segments analyzed: 101 (each 4.1s)
+Persistence threshold for flagging: 25% of segments
+
+--- OVERALL AVERAGES (all segments) ---
+  FRONTAL (Fp1, Fp2, F3, F4, F7, F8, Fz):
+    theta_alpha_ratio              3.9072
+    theta_relative_power           0.1493
+    alpha_relative_power           0.0455
+    spectral_centroid                3.61 Hz
+    spectral_peak                    0.82 Hz
+    iaf                              9.81 Hz
+    pdf                           98.8240
+    spectral_entropy               0.5345
+    lzc                            0.5250
+
+  TEMPORAL (T3, T4, T5, T6):
+    theta_alpha_ratio              3.6255
+    theta_relative_power           0.2007  ⚠
+    alpha_relative_power           0.0705
+    spectral_centroid                5.41 Hz
+    spectral_peak                    1.06 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.6691
+    lzc                            0.6544
+
+  PARIETAL (P3, P4, Pz):
+    theta_alpha_ratio              3.7688
+    theta_relative_power           0.2049  ⚠
+    alpha_relative_power           0.0705
+    spectral_centroid                3.87 Hz
+    spectral_peak                    0.82 Hz
+    iaf                              9.64 Hz
+    pdf                           99.5130
+    spectral_entropy               0.6108
+    lzc                            0.5204
+
+  OCCIPITAL (O1, O2):
+    theta_alpha_ratio              2.2856
+    theta_relative_power           0.1483
+    alpha_relative_power           0.0888
+    spectral_centroid                3.65 Hz
+    spectral_peak                    1.00 Hz
+    iaf                             10.38 Hz
+    pdf                           99.6412
+    spectral_entropy               0.5607
+    lzc                            0.5200
+
+  CENTRAL (C3, C4, Cz):
+    theta_alpha_ratio              2.8738
+    theta_relative_power           0.1857
+    alpha_relative_power           0.0816
+    spectral_centroid                4.43 Hz
+    spectral_peak                    0.84 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.6395
+    lzc                            0.5735
+
+Posterior alpha coherence: 0.4891
+
+--- TEMPORAL CONSISTENCY ---
+Segments with any AD-like pattern: 77/101 (76%)
+Persistently flagged features (≥25% of segments AND recording avg abnormal): 2
+  ⚠ Persistent AD-like patterns throughout recording
+
+--- PERSISTENTLY FLAGGED FEATURES (detailed) ---
+  theta_relative_power — PARIETAL [64/101 segments, 63%]
+    Flagged in segments: 1, 2, 3, 5, 7, 8, 9, 10, 12, 13, 14, 17, 18, 23, 25, 26, 27, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 43, 44, ... (64 total)
+    Channels: P3, P4, Pz
+    Per-channel averages (across flagged segments):
+      P3: 0.3180 (range: 0.1236–0.5621)
+      P4: 0.2477 (range: 0.1168–0.5019)
+      Pz: 0.2471 (range: 0.0662–0.6343)
+
+  theta_relative_power — TEMPORAL [51/101 segments, 50%]
+    Flagged in segments: 2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18, 19, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 33, 35, 36, 37, 38, ... (51 total)
+    Channels: T3, T4, T5, T6
+    Per-channel averages (across flagged segments):
+      T3: 0.2866 (range: 0.0582–0.5218)
+      T4: 0.2036 (range: 0.0538–0.4024)
+      T5: 0.3332 (range: 0.1261–0.6064)
+      T6: 0.3036 (range: 0.0785–0.5129)
+
+--- AD INDICATOR SUMMARY ---
+  * Theta/slow-wave elevation in parietal, temporal — consistent with cholinergic deficit / hippocampal damage
