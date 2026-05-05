@@ -20,6 +20,14 @@ def main():
 
     biomarkerFile = "new_biomarkers.txt"
     outputFile = "final_output.txt"
+    predictionFile = "prediction.txt"
+
+    #Grabs the text from the biomarker output file
+    biomarkers = Path(biomarkerFile).read_text()
+
+    #Grabs text from prediction file
+    prediction = Path(predictionFile).read_text()
+
 
     #A Deep Learning Approach to Alzheimer’s Diagnosis Using EEG Data: Dual-Attention and Optuna-Optimized SVM
     bytes_paper1 = paper_to_bytes('eegpaper1.pdf')
@@ -38,30 +46,40 @@ def main():
 
 
 
-
-
     #Explaintion of the task
-    taskExplanation = """
+    taskExplanation = f"""
             Review the provided PDF file(s) before submitting your answer. 
-            You may use them to inform your response, but are NOT required to reference them directly in your final answer.
+            You may use them to inform your response, \
+            but are NOT required to reference them directly in your final answer.
             
             Task:
             You are an expert neuroscience clinician examining a patient for potential health risks.
 
-            All of the following data has been taken from the same patient.
+            You will be provided with labeled biomarker data from the patient, \
+            as well as a predicted diagnosis from our other EEG-based prediction model. 
+
+
             Please format your analysis structure in the following order:
-            a short, one phrase Hypothesized Diagnosis choosing one of three diagnoses [Alzheimer's Disease, Frontaltemporal Disorder, Healthy],
+            a short, one phrase Hypothesized Diagnosis choosing one of three diagnoses \
+            [Alzheimer's Disease, Frontaltemporal Disorder, Healthy],
             a thorough, listed review of all evidence supporting that claim,
             and finally a note on the potential contradictory evidence or noticeable gaps in information. 
 
+            
             Formatting should look like:
 
             Hypothesis:
             Evidence:
             Contradictory Evidence / Gaps:
 
+            Here is the biomarker information:
+            {biomarkers}
+
+            And here is the predicted diagnosis from another EEG-based prediction model:
+            {prediction}
             
-            Try to be brief wherever possible. Include a confidence percentage at the end of your response related to how plausible your diagnosis appears. 
+            Try to be brief (one to two sentences per point) wherever possible. \
+            Include a confidence percentage at the end of your response related to how plausible your diagnosis appears. 
         """
 
 
@@ -79,15 +97,19 @@ def main():
     #     Final Answer: [answer]
     #     '''
 
-    #Grabs the text from the biomarker's output file
-    biomarkers = Path(biomarkerFile).read_text()
+
     
 
     #Prompting the robot to generate a final response...
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
-        contents=[taskExplanation, biomarkers, 
-                  bytes_paper1, bytes_paper2, bytes_paper3, bytes_paper4, bytes_paper5]
+        contents=[taskExplanation, 
+                  bytes_paper1, 
+                  bytes_paper2, 
+                  bytes_paper3, 
+                  bytes_paper4, 
+                  bytes_paper5 
+                ]
     )
 
 
