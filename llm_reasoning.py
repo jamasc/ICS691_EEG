@@ -60,9 +60,9 @@ def main():
 
 
             Please format your analysis structure in the following order:
-            a short, one phrase Hypothesized Diagnosis choosing one of three diagnoses \
-            [Alzheimer's Disease, Frontaltemporal Disorder, Healthy],
-            a thorough, listed review of all evidence supporting that claim,
+            a short, one phrase Hypothesized Diagnosis choosing one of four possible options \
+            [Healthy Condition (HC), Alzheimer's Disease (AD), Other Dementia/FTD, Unknown/Unlabeled],
+            a thorough, listed review of all evidence supporting that claim,s
             and finally a note on the potential contradictory evidence or noticeable gaps in information. 
 
             
