@@ -19,7 +19,7 @@ Dependencies:
     pip install numpy scipy mne
 
 
-CHANGES FROM v3 (false-positive fixes):
+CHANGES FROM LAST VERSION (false-positive fixes):
   1. analyze_segments() now requires BOTH (a) the recording-level average to
      be flagged AND (b) at least `persistence_threshold` (default 25%) of
      segments to be flagged before a feature counts as "abnormal."
@@ -830,7 +830,7 @@ def analyze_segments(segments, ch_names, sfreq, reference=None,
     """
     Run tiered analysis on multiple segments from one subject.
 
-    NEW (v4): A feature counts as "persistently abnormal" only if BOTH:
+    A feature counts as "persistently abnormal" only if BOTH:
       (a) The recording-level average (across all segments) is itself
           flagged against the healthy reference, AND
       (b) The feature was flagged in at least `persistence_threshold`
@@ -1168,13 +1168,18 @@ def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
                        persistence_threshold=DEFAULT_PERSISTENCE_THRESHOLD,
                        use_percentiles=True):
     """
-    One-liner biomarker extraction for the pipeline notebook.
+    Generate a clinical biomarker text report for the LLM explanation stage.
 
-    Notebook usage (unchanged):
-        biomarkers = extract_biomarkers(eeg)
-        biomarkers = extract_biomarkers(eeg, reference=ref, save_to="report.txt")
+    Returns a formatted string suitable for feeding into a language model.
+    For numerical features (classifier input), use extract_features_fast()
+    instead — it skips the report formatting and runs faster.
 
-    NEW parameters (with safe defaults):
+    Notebook usage:
+        report_text = extract_biomarkers(eeg)
+        report_text = extract_biomarkers(eeg, save_to="report.txt")
+
+    Parameters
+    ----------
     persistence_threshold : float
         Fraction of segments that must show a flag for a feature to count
         as persistent. Default 0.25 (25%).
@@ -1271,6 +1276,119 @@ def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
         print(f"Report saved to: {save_to}")
 
     return llm_text
+
+
+# =============================================================================
+# PIPELINE WRAPPER — one call that returns BOTH numbers and text
+# =============================================================================
+
+def extract_biomarker_outputs(eeg_input, sfreq=128, mode="regional",
+                              condition="unknown", reference=None,
+                              subject_id=None, save_to=None,
+                              persistence_threshold=DEFAULT_PERSISTENCE_THRESHOLD,
+                              use_percentiles=True):
+    """
+    Convenience wrapper for the inference pipeline.
+
+    Calls both extract_features_fast() and extract_biomarkers() and
+    returns everything as a tuple. This is used when both the
+    numerical features (for a classifier) and the text report (for
+    an LLM) from the same recording.
+
+    Parameters
+    ----------
+    eeg_input : ndarray or MNE Raw or str (file path)
+    sfreq : float
+        Sampling rate. Default 128.
+    mode : "whole_head" or "regional"
+        Numerical feature extraction mode. Default "regional" (165 features).
+    condition : str
+        Recording condition (e.g. "resting_eyes_closed", "photic_stimulation").
+        Default "unknown" — works but uses wider thresholds.
+    reference : dict, optional
+        Healthy reference ranges from load_reference_ranges(). Without
+        this, the report will not contain flagging analysis.
+    subject_id : str, optional
+        Patient ID for the report.
+    save_to : str, optional
+        Path to save the text report.
+
+    Returns
+    -------
+    biomarker_features : np.ndarray, shape (n_features,)
+        Numerical feature vector. Pass this to a classifier.
+    biomarker_names : list of str
+        Column labels for biomarker_features.
+    biomarker_report : str
+        Formatted text report. Pass this to an LLM.
+
+    Example
+    -------
+    >>> features, names, report = extract_biomarker_outputs(
+    ...     eeg, condition="resting_eyes_closed", reference=ref
+    ... )
+    """
+    # --- For numerical features, the input must be ndarray-shaped ---
+    # Pull data out of MNE Raw or load from path if needed.
+    if isinstance(eeg_input, np.ndarray):
+        eeg_array = eeg_input
+        eeg_for_report = eeg_input
+    elif isinstance(eeg_input, str):
+        import mne
+        raw = mne.io.read_raw(eeg_input, preload=True)
+        eeg_array = raw.get_data()
+        sfreq = raw.info["sfreq"]
+        eeg_for_report = raw
+    else:
+        # MNE Raw object
+        eeg_array = eeg_input.get_data()
+        sfreq = eeg_input.info["sfreq"]
+        eeg_for_report = eeg_input
+
+    # --- Reshape into segments for fast feature extraction ---
+    if eeg_array.ndim == 2:
+        # (n_channels, n_samples) → segment into 2048-sample chunks
+        window = min(2048, eeg_array.shape[1])
+        n_segs = eeg_array.shape[1] // window
+        if n_segs > 0:
+            trimmed = eeg_array[:, :n_segs * window]
+            segs = trimmed.reshape(eeg_array.shape[0], n_segs, window)
+            segs = np.transpose(segs, (1, 0, 2))
+        else:
+            segs = eeg_array[np.newaxis, :, :]
+    else:
+        segs = eeg_array
+
+    # --- Numerical features for EEGPT input ---
+    biomarker_features, biomarker_names = extract_features_fast(
+        segs, sfreq=sfreq, mode=mode
+    )
+    # Average across segments → one feature vector per recording
+    if biomarker_features.ndim == 2 and biomarker_features.shape[0] > 1:
+        biomarker_features = _safe_nanmean_axis0(biomarker_features)
+
+    # --- Text report Gemini input ---
+    biomarker_report = extract_biomarkers(
+        eeg_for_report,
+        sfreq=sfreq,
+        subject_id=subject_id,
+        condition=condition,
+        reference=reference,
+        save_to=save_to,
+        persistence_threshold=persistence_threshold,
+        use_percentiles=use_percentiles,
+    )
+
+    return biomarker_features, biomarker_names, biomarker_report
+
+
+def _safe_nanmean_axis0(arr):
+    """Mean across axis 0, ignoring NaN. Returns a 1D array."""
+    with np.errstate(invalid="ignore"):
+        result = np.nanmean(arr, axis=0)
+    # Replace any remaining NaN/inf with 0 for classifier safety
+    result = np.where(np.isfinite(result), result, 0.0)
+    return result.astype(np.float32)
 
 
 # =============================================================================
@@ -1481,7 +1599,7 @@ def extract_features_fast(eeg_input, sfreq=128, mode="regional",
     Fast numerical-only feature extraction for classifier training.
 
     Compared to extract_biomarkers():
-      - Computes PSD once per channel
+      - Computes PSD once per channel instead of 5x (~3-4x speedup)
       - Skips reference comparison and flagging entirely
       - Skips posterior coherence (171 channel-pairs per segment)
       - Skips text formatting and report generation
@@ -1548,7 +1666,7 @@ def extract_features_fast(eeg_input, sfreq=128, mode="regional",
             "O1", "O2",
         ][:n_channels]
 
-    # --- Build per-channel features function (with optional LZC skip) ---
+    # --- Build a fast per-channel features function (with optional LZC skip) ---
     def _ch_feats(sig):
         feats = _channel_features_fast(sig, sfreq)
         if skip_lzc:
