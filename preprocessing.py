@@ -2,8 +2,17 @@ import os
 from pathlib import Path
 import mne
 from mne.preprocessing import ICA
+import numpy as np
 
 SUPPORTED_EXTENSIONS = [".edf", ".bdf", ".fif", ".set", ".vhdr"]
+TARGET_SFREQ = 128.0
+MIN_SAMPLES_FOR_PSD = 512
+STANDARD_19 = [
+        'FP1','FP2','F7','F3','FZ','F4','F8',
+        'T7','C3','CZ','C4','T8',
+        'P7','P3','PZ','P4','P8',
+        'O1','O2'
+    ]
 
 def load_raw(file_path: str | Path) -> mne.io.BaseRaw:
     file_path = Path(file_path)
@@ -22,7 +31,75 @@ def load_raw(file_path: str | Path) -> mne.io.BaseRaw:
 
     return raw
 
-# -----------------------
+def npz_to_raw(sample: np.ndarray, sfreq: float = 128.0) -> mne.io.RawArray:
+    """
+    Convert a single NPZ sample into an MNE Raw object.
+
+    Handles:
+    - shape inference (time x channels vs channels x time)
+    - channel naming
+    - sampling rate standardization
+    """
+
+    # Fix orientation
+    if sample.shape[0] < sample.shape[1]:
+        data = sample  # already (channels, time)
+    else:
+        data = sample.T  # (time, channels) → (channels, time)
+
+    n_channels = data.shape[0]
+
+    # Assign channel names
+    standard_19 = [
+        'FP1','FP2','F7','F3','FZ','F4','F8',
+        'T7','C3','CZ','C4','T8',
+        'P7','P3','PZ','P4','P8',
+        'O1','O2'
+    ]
+
+    if n_channels <= len(standard_19):
+        ch_names = standard_19[:n_channels]
+    else:
+        ch_names = [f"CH{i}" for i in range(n_channels)]
+
+    # Create MNE Raw
+    info = mne.create_info(
+        ch_names=ch_names,
+        sfreq=sfreq,
+        ch_types="eeg"
+    )
+
+    raw = mne.io.RawArray(data, info, verbose=False)
+
+    return raw
+
+def preprocess_npz_sample(
+    sample: np.ndarray,
+    apply_ica: bool = False,
+    target_sfreq: float = 128.0
+) -> mne.io.BaseRaw:
+    raw = npz_to_raw(sample, sfreq=target_sfreq)
+    # Apply standard pipeline
+    raw = preprocess_raw(raw, apply_ica=apply_ica, target_sfreq=target_sfreq)
+
+    return raw
+
+# lets you preprocess once and then save it
+def preprocess_npz_file(npz_path: str | Path, apply_ica: bool = False):
+    data = np.load(npz_path, allow_pickle=True)
+    X = data["X_raw"]
+
+    raws = []
+
+    for i in range(len(X)):
+        try:
+            raw = preprocess_npz_sample(X[i], apply_ica=apply_ica)
+            raws.append(raw)
+        except Exception as e:
+            print(f"Error processing sample {i}: {e}")
+
+    return raws
+
 # channel handling
 def standardize_channel_names(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
     """
@@ -54,24 +131,84 @@ def remove_non_eeg_channels(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
     raw.pick(mne.pick_types(raw.info, eeg=True))
     return raw
 
-# -----------------------
+def enforce_standard_19_montage(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
+
+    existing = [ch for ch in STANDARD_19 if ch in raw.ch_names]
+    missing = [ch for ch in STANDARD_19 if ch not in raw.ch_names]
+
+    if len(existing) == 0:
+        raise ValueError("No matching standard EEG channels found.")
+
+    # keep only channels relevant to 19ch montage
+    raw.pick(existing)
+
+    # create standard montage
+    montage = mne.channels.make_standard_montage("standard_1020")
+    raw.set_montage(montage, on_missing="ignore")
+
+    # add missing channels as zero-filled placeholders
+    if missing:
+        sfreq = raw.info["sfreq"]
+        zeros = np.zeros((len(missing), raw.n_times))
+
+        info = mne.create_info(
+            ch_names=missing,
+            sfreq=sfreq,
+            ch_types="eeg"
+        )
+
+        missing_raw = mne.io.RawArray(zeros, info, verbose=False)
+        missing_raw.set_montage(montage, on_missing="ignore")
+
+        raw.add_channels([missing_raw], force_update_info=True)
+
+        raw.interpolate_bads(reset_bads=True)
+
+    # enforce ordering
+    raw.reorder_channels(STANDARD_19)
+
+    return raw
+
 # Filters
 def detect_powerline_noise(raw: mne.io.BaseRaw) -> bool:
-    psd = raw.compute_psd(fmax=70)
+    sfreq = raw.info["sfreq"]
+    nyquist = sfreq / 2
+
+    # Stay safely below Nyquist
+    fmax = min(70, nyquist - 1)
+
+    psd = raw.compute_psd(fmax=fmax)
     freqs = psd.freqs
     psd_data = psd.get_data().mean(axis=0)
 
-    power_50 = psd_data[(freqs > 49) & (freqs < 51)].mean()
-    power_60 = psd_data[(freqs > 59) & (freqs < 61)].mean()
+    power_50 = psd_data[(freqs > 49) & (freqs < 51)].mean() if nyquist > 51 else 0
+    power_60 = psd_data[(freqs > 59) & (freqs < 61)].mean() if nyquist > 61 else 0
 
     return power_50 > 1e-10 or power_60 > 1e-10
 
 def apply_notch_filter(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
-    raw.notch_filter(freqs=[50, 60])
+    raw.notch_filter(
+        freqs=[50, 60],
+        method="iir",
+        iir_params=dict(order=4, ftype="butter")
+    )
     return raw
 
 def apply_bandpass_filter(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
-    raw.filter(l_freq=0.5, h_freq=45.0)
+    sfreq = raw.info["sfreq"]
+    nyquist = sfreq / 2
+    h_freq = min(45.0, nyquist - 1)
+
+    if raw.n_times < 512: # use IRR filtering for short segments
+        raw.filter(
+            l_freq=0.5,
+            h_freq=h_freq,
+            method="iir",
+            iir_params=dict(order=4, ftype="butter")
+        )
+    else:
+        raw.filter(l_freq=0.5, h_freq=h_freq)
+
     return raw
 
 def apply_average_reference(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
@@ -95,22 +232,28 @@ def run_ica_artifact_removal(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
 
 # -----------------------
 # Main pipeline
-def preprocess_raw(
-    raw: mne.io.BaseRaw,
-    apply_ica: bool = False,
-    auto_notch: bool = True
-) -> mne.io.BaseRaw:
+def preprocess_raw(raw: mne.io.BaseRaw, apply_ica: bool = False, auto_notch: bool = True, target_sfreq: float = TARGET_SFREQ) -> mne.io.BaseRaw:
 
+    # Channel cleanup
     raw = standardize_channel_names(raw)
     raw = remove_non_eeg_channels(raw)
 
-    if auto_notch and detect_powerline_noise(raw):
+    # Resample
+    if raw.info["sfreq"] != target_sfreq:
+        raw.resample(target_sfreq)
+
+    # Enforce 19 channels
+    raw = enforce_standard_19_montage(raw)
+
+    # Filtering
+    if (auto_notch and raw.n_times >= MIN_SAMPLES_FOR_PSD and detect_powerline_noise(raw)):
         raw = apply_notch_filter(raw)
 
     raw = apply_bandpass_filter(raw)
     raw = apply_average_reference(raw)
 
-    if apply_ica:
+    # ICA
+    if apply_ica and raw.n_times >= 1024:
         raw = run_ica_artifact_removal(raw)
 
     return raw
@@ -119,11 +262,12 @@ def preprocess_raw(
 def preprocess_file(
     file_path: str | Path,
     output_path: str | Path | None = None,
-    apply_ica: bool = False
+    apply_ica: bool = False,
+    target_sfreq: float = TARGET_SFREQ
 ) -> mne.io.BaseRaw:
 
     raw = load_raw(file_path)
-    raw = preprocess_raw(raw, apply_ica=apply_ica)
+    raw = preprocess_raw(raw, apply_ica=apply_ica, target_sfreq=target_sfreq)
 
     if output_path:
         output_path = Path(output_path)
@@ -132,7 +276,6 @@ def preprocess_file(
 
     return raw
 
-# -----------------------
 # Process in batches
 def find_eeg_files(input_dir: str | Path):
     input_dir = Path(input_dir)
@@ -165,8 +308,6 @@ def process_directory(
         except Exception as e:
             print(f"Error processing {file_path}: {e}")
 
-
-# -----------------------
 # bash setup
 if __name__ == "__main__":
     import argparse
@@ -183,3 +324,10 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         apply_ica=args.ica
     )
+
+
+"""
+
+sampling frequency needs to be 128hz, 19 channels.
+
+"""
