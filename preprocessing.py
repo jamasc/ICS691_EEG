@@ -3,8 +3,9 @@ from pathlib import Path
 import mne
 from mne.preprocessing import ICA
 import numpy as np
+import pandas as pd
 
-SUPPORTED_EXTENSIONS = [".edf", ".bdf", ".fif", ".set", ".vhdr"]
+SUPPORTED_EXTENSIONS = [".edf", ".bdf", ".fif", ".set", ".vhdr", ".csv"]
 TARGET_SFREQ = 128.0
 MIN_SAMPLES_FOR_PSD = 512
 STANDARD_19 = [
@@ -13,6 +14,32 @@ STANDARD_19 = [
         'P7','P3','PZ','P4','P8',
         'O1','O2'
     ]
+
+# THIS PROBABLY NEEDS TO BE CHANGED - I have no idea what is closest to what, spatially.
+CSV_32_CHANNEL_MAP = {
+    "EEG_Electrode_1": "FP1",
+    "EEG_Electrode_17": "FP2",
+    "EEG_Electrode_4": "F7",
+    "EEG_Electrode_3": "F3",
+    "EEG_Electrode_19": "FZ",
+    "EEG_Electrode_20": "F4",
+    "EEG_Electrode_21": "F8",
+
+    "EEG_Electrode_8": "T7",
+    "EEG_Electrode_7": "C3",
+    "EEG_Electrode_24": "CZ",
+    "EEG_Electrode_25": "C4",
+    "EEG_Electrode_26": "T8",
+
+    "EEG_Electrode_12": "P7",
+    "EEG_Electrode_11": "P3",
+    "EEG_Electrode_16": "PZ",
+    "EEG_Electrode_29": "P4",
+    "EEG_Electrode_30": "P8",
+
+    "EEG_Electrode_14": "O1",
+    "EEG_Electrode_32": "O2",
+}
 
 def load_raw(file_path: str | Path) -> mne.io.BaseRaw:
     file_path = Path(file_path)
@@ -26,6 +53,8 @@ def load_raw(file_path: str | Path) -> mne.io.BaseRaw:
         raw = mne.io.read_raw_brainvision(file_path, preload=True)
     elif ext == ".set":
         raw = mne.io.read_raw_eeglab(file_path, preload=True)
+    elif ext == ".csv":
+        raw = load_csv_as_raw(file_path)
     else:
         raise ValueError(f"Unsupported file format: {ext}")
 
@@ -99,6 +128,53 @@ def preprocess_npz_file(npz_path: str | Path, apply_ica: bool = False):
             print(f"Error processing sample {i}: {e}")
 
     return raws
+
+def load_csv_as_raw(file_path: str | Path, sfreq: float = TARGET_SFREQ) -> mne.io.RawArray:
+
+    df = pd.read_csv(file_path)
+
+    # Keep only electrode columns
+    electrode_cols = [
+        col for col in df.columns
+        if col.startswith("EEG_Electrode_")
+    ]
+
+    if len(electrode_cols) == 0:
+        raise ValueError("No EEG electrode columns found in CSV.")
+
+    data = df[electrode_cols].to_numpy(dtype=np.float64)
+
+    # CSV rows are time samples
+    # MNE expects (channels, time)
+    data = data.T
+
+    # Rename numbered electrodes to approximate 10-20 locations
+    ch_names = []
+    selected_data = []
+
+    for i, col in enumerate(electrode_cols):
+
+        if col in CSV_32_CHANNEL_MAP:
+            ch_names.append(CSV_32_CHANNEL_MAP[col])
+            selected_data.append(data[i])
+
+    if len(selected_data) == 0:
+        raise ValueError("No mapped EEG channels found.")
+
+    selected_data = np.array(selected_data)
+
+    info = mne.create_info(
+        ch_names=ch_names,
+        sfreq=sfreq,
+        ch_types="eeg"
+    )
+
+    raw = mne.io.RawArray(selected_data, info, verbose=False)
+
+    montage = mne.channels.make_standard_montage("standard_1020")
+    raw.set_montage(montage, on_missing="ignore")
+
+    return raw
 
 # channel handling
 def standardize_channel_names(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
