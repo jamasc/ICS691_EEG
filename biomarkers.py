@@ -981,7 +981,7 @@ def format_tiered_report(analysis, subject_id="unknown",
                          diagnosis_prob=None, condition="unknown"):
     """
     Format the tiered analysis into a clinical report for the LLM.
-
+ 
     The AD INDICATOR SUMMARY now drives off persistent_flags (which already
     requires recording-level + persistence agreement), not "any segment ever
     flagged."
@@ -992,11 +992,11 @@ def format_tiered_report(analysis, subject_id="unknown",
     n_seg = analysis["n_segments"]
     persistence = analysis.get("persistence_threshold",
                                DEFAULT_PERSISTENCE_THRESHOLD)
-
+ 
     n_flagged = len(analysis["flagged_indices"])
     pct_flagged = (n_flagged / n_seg * 100) if n_seg > 0 else 0
     persistent = analysis.get("persistent_flags", {})
-
+ 
     lines = []
     lines.append(f"=== EEG Biomarker Report: Subject {subject_id} ===")
     lines.append("")
@@ -1006,11 +1006,11 @@ def format_tiered_report(analysis, subject_id="unknown",
     lines.append(f"Persistence threshold for flagging: "
                  f"{persistence*100:.0f}% of segments")
     lines.append("")
-
+ 
     if diagnosis_prob is not None:
         lines.append(f"EEGPT AD Classification Probability: {diagnosis_prob:.2%}")
         lines.append("")
-
+ 
     # --- Overall regional averages ---
     lines.append("--- OVERALL AVERAGES (all segments) ---")
     key_features = [
@@ -1018,9 +1018,9 @@ def format_tiered_report(analysis, subject_id="unknown",
         "spectral_centroid", "spectral_peak", "iaf", "pdf",
         "spectral_entropy", "lzc"
     ]
-
+ 
     persistent_keys = set(persistent.keys())
-
+ 
     for region in ["frontal", "temporal", "parietal", "occipital", "central"]:
         if region not in analysis["overall_regional"]:
             continue
@@ -1038,14 +1038,14 @@ def format_tiered_report(analysis, subject_id="unknown",
                 else:
                     lines.append(f"    {f:28s} {v:>8.4f}{marker}")
         lines.append("")
-
+ 
     # --- Posterior coherence ---
     post_coh = analysis["posterior_coherence"]
     lines.append(f"Posterior alpha coherence: {post_coh:.4f}")
     if post_coh < 0.3:
         lines.append("  ⚠ REDUCED — disrupted posterior networks")
     lines.append("")
-
+ 
     # --- Temporal consistency ---
     lines.append("--- TEMPORAL CONSISTENCY ---")
     lines.append(f"Segments with any AD-like pattern: "
@@ -1053,13 +1053,30 @@ def format_tiered_report(analysis, subject_id="unknown",
     n_persistent = len(persistent)
     lines.append(f"Persistently flagged features (≥{persistence*100:.0f}% "
                  f"of segments AND recording avg abnormal): {n_persistent}")
-
+ 
+    # Tally per-feature flag rates regardless of whether they crossed the
+    # persistence threshold — the LLM should see this evidence rather than
+    # having it hidden by the strict flagging rule.
+    flag_summary = analysis.get("flag_summary", {})
+    sub_threshold = []
+    for (region, feature), seg_indices in flag_summary.items():
+        pct = len(seg_indices) / n_seg * 100 if n_seg > 0 else 0
+        # Anything that isn't already persistent but had some flagging
+        is_persistent = (region, feature) in persistent
+        if not is_persistent and pct > 0:
+            sub_threshold.append((region, feature, len(seg_indices), pct))
+    # Sort by frequency, most-flagged first
+    sub_threshold.sort(key=lambda x: -x[3])
+ 
     if n_persistent == 0:
-        lines.append("  No persistent AD-associated abnormalities detected.")
         if pct_flagged > 0:
-            lines.append("  (Some individual segments showed transient flags, "
-                         "but they did not persist or shift the overall "
-                         "recording average — this is expected variation.)")
+            lines.append("")
+            lines.append("  No features crossed the strict persistence "
+                         "threshold, but the following features were "
+                         "flagged in individual segments and may warrant "
+                         "clinical review:")
+        else:
+            lines.append("  No AD-associated abnormalities detected.")
         lines.append("")
     else:
         if pct_flagged > 75:
@@ -1071,10 +1088,10 @@ def format_tiered_report(analysis, subject_id="unknown",
         else:
             lines.append("  Occasional AD-like patterns")
         lines.append("")
-
+ 
         # --- Persistently-flagged feature details ---
         lines.append("--- PERSISTENTLY FLAGGED FEATURES (detailed) ---")
-
+ 
         for (region, feature), detail in analysis["flagged_detail"].items():
             seg_indices = detail["segments"]
             n_flagged_for_feat = len(seg_indices)
@@ -1084,14 +1101,14 @@ def format_tiered_report(analysis, subject_id="unknown",
                 seg_str += f", ... ({len(seg_indices)} total)"
             per_ch = detail["per_channel"]
             ch_str = ", ".join(per_ch.keys())
-
+ 
             lines.append(f"  {feature} — {region.upper()} "
                          f"[{n_flagged_for_feat}/{n_seg} segments, "
                          f"{pct_for_feat:.0f}%]")
             lines.append(f"    Flagged in segments: {seg_str}")
             lines.append(f"    Channels: {ch_str}")
             lines.append(f"    Per-channel averages (across flagged segments):")
-
+ 
             for ch_name, st in per_ch.items():
                 if feature in ["spectral_centroid", "spectral_peak",
                                "iaf", "median_frequency"]:
@@ -1101,11 +1118,68 @@ def format_tiered_report(analysis, subject_id="unknown",
                     lines.append(f"      {ch_name}: {st['mean']:.4f} "
                                  f"(range: {st['min']:.4f}–{st['max']:.4f})")
             lines.append("")
-
+ 
+    # --- Sub-threshold findings (always show if any exist) ---
+    if sub_threshold:
+        lines.append("--- SUB-THRESHOLD FINDINGS ---")
+        lines.append("Features flagged in individual segments but not "
+                     "meeting the strict persistence + recording-average "
+                     "criterion. These are weaker evidence than persistent "
+                     "flags but represent real per-segment deviations:")
+        lines.append("")
+        for region, feature, n_flag, pct in sub_threshold[:15]:
+            marker = "~" if pct >= 15 else " "
+            lines.append(f"  {marker} {feature} — {region.upper()}: "
+                         f"flagged in {n_flag}/{n_seg} segments ({pct:.0f}%)")
+        if len(sub_threshold) > 15:
+            lines.append(f"  ... and {len(sub_threshold) - 15} more "
+                         f"sub-threshold findings")
+        lines.append("")
+ 
     # --- Clinical pattern summary ---
     lines.append("--- AD INDICATOR SUMMARY ---")
     if not persistent:
-        if any(analysis.get("per_segment_flags", [])):
+        if sub_threshold:
+            # Synthesize the sub-threshold evidence into clinical patterns
+            sub_keys = [(r, f) for r, f, _, _ in sub_threshold]
+            has_posterior_alpha = any(
+                r in ["occipital", "parietal"]
+                and f in ["alpha_relative_power", "iaf"]
+                for r, f in sub_keys
+            )
+            has_theta = any(
+                f in ["theta_alpha_ratio", "theta_relative_power", "pdf"]
+                for _, f in sub_keys
+            )
+            has_complexity = any(
+                f in ["spectral_entropy", "lzc"]
+                for _, f in sub_keys
+            )
+            has_slowing = any(
+                f in ["spectral_centroid", "spectral_peak", "iaf"]
+                for _, f in sub_keys
+            )
+ 
+            lines.append("  No persistent flags at the recording level. "
+                         "The following sub-threshold patterns appeared "
+                         "in individual segments:")
+            if has_posterior_alpha:
+                lines.append("  * Posterior alpha reduction "
+                             "(sub-threshold)")
+            if has_theta:
+                lines.append("  * Theta/slow-wave elevation "
+                             "(sub-threshold)")
+            if has_complexity:
+                lines.append("  * Reduced signal complexity "
+                             "(sub-threshold)")
+            if has_slowing:
+                lines.append("  * Spectral slowing (sub-threshold)")
+            lines.append("")
+            lines.append("  Sub-threshold patterns are weaker evidence "
+                         "than persistent flags. They may represent early "
+                         "or intermittent abnormalities, or normal "
+                         "variation. Interpret in clinical context.")
+        elif any(analysis.get("per_segment_flags", [])):
             lines.append("  No persistent abnormalities at the recording "
                          "level. Per-segment fluctuations did not exceed "
                          "the persistence threshold and the overall "
@@ -1132,7 +1206,7 @@ def format_tiered_report(analysis, subject_id="unknown",
             f in ["spectral_centroid", "spectral_peak", "iaf"]
             for _, f in flag_keys
         )
-
+ 
         if has_posterior_alpha:
             lines.append("  * Posterior alpha reduction — consistent with "
                          "thalamocortical circuit disruption")
@@ -1149,12 +1223,13 @@ def format_tiered_report(analysis, subject_id="unknown",
         if has_slowing:
             lines.append("  * Spectral slowing — consistent with "
                          "cortical hypoactivation in AD")
-
+ 
         if not any([has_posterior_alpha, has_theta,
                     has_complexity, has_slowing]):
             for (r, f), indices in list(persistent.items())[:5]:
                 lines.append(f"  * {f} abnormal in {r} "
                              f"({len(indices)}/{n_seg} segments)")
+                
     # --- KDE CLASSIFICATION ---
     lines.append("")
     lines.append("--- KDE FEATURE CLASSIFICATION ---")
