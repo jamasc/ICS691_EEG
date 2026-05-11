@@ -50,18 +50,7 @@ def getTask(tmpBiomarkers, tmpPrediction):
             Include a confidence percentage at the end of your response related to how plausible your diagnosis appears. 
         """
     
-
-def main():
-    biomarkerFile = "new_biomarkers.txt"
-    predictionFile = "prediction.txt"
-    outputFile = "final_output.txt"
-
-    #Grabs the text from the biomarker output file
-    biomarkers = Path(biomarkerFile).read_text()
-
-    #Grabs text from prediction file
-    prediction = Path(predictionFile).read_text()
-
+def getPapers():
 
     #A Deep Learning Approach to Alzheimer’s Diagnosis Using EEG Data: Dual-Attention and Optuna-Optimized SVM
     bytes_paper1 = paper_to_bytes('eegpaper1.pdf')
@@ -78,9 +67,39 @@ def main():
     #EEG-based classification of alzheimer’s disease and frontotemporal dementia using functional connectivity
     bytes_paper5 = paper_to_bytes('eegpaper5.pdf')
 
+    #Electroencephalogram Based Biomarkers for Detection of Alzheimer's Disease
+    bytes_paper6 = paper_to_bytes('eegpaper6.pdf')
+
+    #The EEG analysis and identification of Alzheimer's disease: a review
+    bytes_paper7 = paper_to_bytes('eegpaper7.pdf')
+
+    return [
+        bytes_paper1,
+        bytes_paper2,
+        bytes_paper3,
+        bytes_paper4,
+        bytes_paper5,
+        bytes_paper6,
+        bytes_paper7
+    ]
+
+def main():
+    biomarkerFile = "new_biomarkers.txt"
+    predictionFile = "prediction.txt"
+    outputFile = "final_output.txt"
+
+    #Grabs the text from the biomarker output file
+    biomarkers = Path(biomarkerFile).read_text()
+
+    #Grabs text from prediction file
+    prediction = Path(predictionFile).read_text()
+
+    #Grabs list of all EEG papers to reference
+    eeg_paper_list = getPapers()
 
     #Explaintion of the task
     taskExplanation = getTask(biomarkers, prediction)
+
 
 
     #Creates a client with the provided Gemini API Key
@@ -90,11 +109,7 @@ def main():
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
         contents=[taskExplanation, 
-                  bytes_paper1, 
-                  bytes_paper2, 
-                  bytes_paper3, 
-                  bytes_paper4, 
-                  bytes_paper5 
+                  eeg_paper_list
                 ]
     )
 

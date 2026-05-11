@@ -42,7 +42,6 @@ def getTask(diagnosis, tmpBiomarkers, tmpPrediction):
 
 #=====================================================================================
 
-
 def getPapers():
     #A Deep Learning Approach to Alzheimer’s Diagnosis Using EEG Data: Dual-Attention and Optuna-Optimized SVM
     bytes_paper1 = paper_to_bytes('eegpaper1.pdf')
@@ -59,11 +58,19 @@ def getPapers():
     #EEG-based classification of alzheimer’s disease and frontotemporal dementia using functional connectivity
     bytes_paper5 = paper_to_bytes('eegpaper5.pdf')
 
+    #Electroencephalogram Based Biomarkers for Detection of Alzheimer's Disease
+    bytes_paper6 = paper_to_bytes('eegpaper6.pdf')
+
+    #The EEG analysis and identification of Alzheimer's disease: a review
+    bytes_paper7 = paper_to_bytes('eegpaper7.pdf')
+
     return [bytes_paper1, 
             bytes_paper2, 
             bytes_paper3, 
             bytes_paper4, 
-            bytes_paper5
+            bytes_paper5,
+            bytes_paper6,
+            bytes_paper7
         ]
 
 
