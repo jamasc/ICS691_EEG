@@ -34,6 +34,7 @@ import os
 import warnings
 import numpy as np
 from scipy import signal, stats
+from classify_kde import classify_selected_features
 
 
 # =============================================================================
@@ -1154,6 +1155,52 @@ def format_tiered_report(analysis, subject_id="unknown",
             for (r, f), indices in list(persistent.items())[:5]:
                 lines.append(f"  * {f} abnormal in {r} "
                              f"({len(indices)}/{n_seg} segments)")
+    # --- KDE CLASSIFICATION ---
+    lines.append("")
+    lines.append("--- KDE FEATURE CLASSIFICATION ---")
+
+    feature_accumulator = {}
+
+    for region, feats in analysis["overall_regional"].items():
+
+        for feature_name, value in feats.items():
+
+            if feature_name.startswith("_"):
+                continue
+
+            if not isinstance(value, (int, float, np.floating)):
+                continue
+
+            if not np.isfinite(value):
+                continue
+
+            if feature_name not in feature_accumulator:
+                feature_accumulator[feature_name] = []
+
+            feature_accumulator[feature_name].append(float(value))
+
+    # Recording-level averages
+    kde_features = {
+        feature_name: float(np.mean(values))
+        for feature_name, values in feature_accumulator.items()
+        if len(values) > 0
+    }
+
+    kde_results = classify_selected_features(kde_features)
+
+    if not kde_results:
+        lines.append("  No KDE classifications available.")
+    else:
+        for feature_name, probs in kde_results.items():
+
+            ad_prob = probs.get("AD", 0.0)
+            non_ad_prob = probs.get("NON-AD", 0.0)
+
+            lines.append(
+                f"  {feature_name:24s} "
+                f"AD={ad_prob:.2%}   "
+                f"NON-AD={non_ad_prob:.2%}"
+            )
 
     return "\n".join(lines)
 
