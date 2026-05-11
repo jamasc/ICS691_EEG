@@ -1196,9 +1196,19 @@ def extract_biomarkers(eeg_input, sfreq=128, subject_id=None,
 
     if isinstance(eeg_input, np.ndarray):
         if eeg_input.ndim == 3:
+            # Already pre-segmented: (n_segments, n_channels, n_samples)
             segments = eeg_input
         elif eeg_input.ndim == 2:
-            segments = eeg_input[np.newaxis, :, :]
+            # Single recording (n_channels, n_samples) — chunk into 2048-sample
+            # segments so the report reflects multi-segment analysis.
+            window = min(2048, eeg_input.shape[1])
+            n_segs = eeg_input.shape[1] // window
+            if n_segs > 0:
+                trimmed = eeg_input[:, :n_segs * window]
+                segments = trimmed.reshape(eeg_input.shape[0], n_segs, window)
+                segments = np.transpose(segments, (1, 0, 2))
+            else:
+                segments = eeg_input[np.newaxis, :, :]
         else:
             raise ValueError(f"Array must be 2D or 3D, got {eeg_input.ndim}D")
         ch_names = ch_names[:segments.shape[1]]
