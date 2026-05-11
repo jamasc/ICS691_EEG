@@ -1,0 +1,2 @@
+The classification model predicts that this subject has ALZHEIMERS DISEASE with a confidence of 70%. 
+The options were HEALTHY, ALZHEIMERS DISEASE, OTHER DEMENTIA, and UNKNOWN.
