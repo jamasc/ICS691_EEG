@@ -193,15 +193,24 @@ def standardize_channel_names(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
     }
 
     mapping = {}
+
     for ch in raw.ch_names:
-        if ch in rename_map:
-            mapping[ch] = rename_map[ch]
+        cleaned = clean_channel_name(ch)
+
+        if cleaned in rename_map:
+            mapping[ch] = rename_map[cleaned]
         else:
-            mapping[ch] = ch.upper()
+            mapping[ch] = cleaned.upper()
 
     raw.rename_channels(mapping)
     return raw
 
+def clean_channel_name(ch: str) -> str:
+    # leaving this small to expand on for whatever reason
+    if ch.endswith("-AVG"):
+        ch = ch.replace("-AVG", "")
+
+    return ch.strip()
 
 def remove_non_eeg_channels(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
     raw.pick(mne.pick_types(raw.info, eeg=True))
