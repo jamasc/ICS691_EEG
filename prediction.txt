@@ -1,0 +1,7 @@
+
+        Two classification models were trained to classify an eeg to one of the following 4 categories: HEALTHY, ALZHEIMER DISEASE, OTHER DEMENTIA, UNKNOWN.
+        One of the models was trained on calculated biomarkers, and the other one trained on the semantic embeddings of the raw eeg.
+        The prediction from the biomarker model is HEALTHY with a confidence of 0.58.
+        The prediction from the embedding model is HEALTHY with a confidence of 0.41.
+        These predictions and confidences should be used as a guideline rather than the full truth.
+    

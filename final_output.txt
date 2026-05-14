@@ -1,0 +1,20 @@
+Here's a breakdown of the evidence for and against an Alzheimer's diagnosis based on the provided biomarker report, followed by a diagnostic conclusion.
+
+**Evidence Supporting an Alzheimer's Diagnosis:**
+
+*   **Sub-threshold Theta Elevation:** The report indicates sub-threshold findings for theta\_relative\_power flagged in a significant number of segments across multiple regions (Parietal: 18%, Temporal: 12%, Central: 11%, Frontal: 9%). The AD Indicator Summary explicitly notes "Theta/slow-wave elevation (sub-threshold)". While not persistent or consistently flagged across the recording, the presence of elevated theta activity, particularly when it occurs across multiple brain regions, is a known EEG biomarker associated with cognitive impairment and can be indicative of early-stage Alzheimer's disease or general cognitive decline.
+
+**Evidence Contradicting an Alzheimer's Diagnosis:**
+
+*   **Absence of Persistent Flags:** The report explicitly states "Persistently flagged features (≥25% of segments AND recording avg abnormal): 0". This is the strongest evidence against a clear EEG pattern indicative of Alzheimer's disease as defined by this specific analysis pipeline, as it means no EEG features were consistently abnormal across both the recording-average and a significant proportion of individual segments.
+*   **No Significant AD-like Patterns at Recording Level:** The "AD INDICATOR SUMMARY" indicates no persistent flags at the recording level. While it notes sub-threshold patterns, the primary analysis for consistent and substantial abnormalities showed none.
+*   **Biomarker Model Prediction:** The biomarker classification model predicted "HEALTHY" with a confidence of 0.58, leaning towards a healthy classification.
+*   **Embedding Model Prediction:** The embedding model also predicted "HEALTHY" with a confidence of 0.41, further supporting a healthy classification, albeit with lower confidence.
+
+**Predicted Diagnosis:**
+
+Not Alzheimer's Disease
+
+**Certainty of Diagnosis:**
+
+Low to Moderate. While the absence of persistent flags and the model predictions lean towards healthy, the presence of sub-threshold theta elevation across multiple regions is a subtle indicator that warrants consideration in a broader clinical context. However, based solely on the provided EEG biomarker report, the evidence against a definitive Alzheimer's diagnosis is stronger due to the lack of persistent abnormalities.

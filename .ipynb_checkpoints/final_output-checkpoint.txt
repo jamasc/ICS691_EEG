@@ -1,0 +1,10 @@
+Hypothesis:
+Healthy Condition (HC)
+
+Evidence:
+The "AD INDICATOR SUMMARY" states, "No reference ranges provided, or all features within healthy reference ranges."
+The "TEMPORAL CONSISTENCY" section reports, "Segments with any AD-like pattern: 0/1 (0%)" and "No persistent AD-associated abnormalities detected."
+The model trained on semantic embeddings of raw EEG yielded a prediction of HEALTHY with a confidence of 0.41.
+
+Contradictory Evidence / Gaps:
+The biomarker model predicted ALZHEIMERS DISEASE with a confidence of 0.395, which contradicts the other findings. The recording condition was "Unknown," which the report states necessitates wider reference ranges and impacts accuracy. The lack of specific reference ranges for the biomarkers makes definitive classification challenging.

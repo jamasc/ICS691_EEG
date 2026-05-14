@@ -1,0 +1,72 @@
+=== EEG Biomarker Report: Subject unknown ===
+
+Recording condition: Unknown Recording Condition
+  Recording condition not specified. Using wider reference ranges to avoid false alarms. Specify condition for more accurate assessment.
+Segments analyzed: 1 (each 910.0s)
+Persistence threshold for flagging: 25% of segments
+
+--- OVERALL AVERAGES (all segments) ---
+  FRONTAL (Fp1, Fp2, F7, F3, Fz, F4, F8):
+    theta_alpha_ratio              2.0249
+    theta_relative_power           0.0409
+    alpha_relative_power           0.0478
+    spectral_centroid                2.07 Hz
+    spectral_peak                    0.50 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.4416
+    lzc                            1.0848
+
+  TEMPORAL (T3, T4, T5, T6):
+    theta_alpha_ratio              0.5715
+    theta_relative_power           0.0562
+    alpha_relative_power           0.1003
+    spectral_centroid                2.89 Hz
+    spectral_peak                    0.50 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.5446
+    lzc                            1.0767
+
+  PARIETAL (P3, Pz, P4):
+    theta_alpha_ratio              0.4202
+    theta_relative_power           0.0547
+    alpha_relative_power           0.1493
+    spectral_centroid                3.73 Hz
+    spectral_peak                    0.50 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.5930
+    lzc                            1.0664
+
+  OCCIPITAL (O1, O2):
+    theta_alpha_ratio              0.3124
+    theta_relative_power           0.0563
+    alpha_relative_power           0.1799
+    spectral_centroid                4.05 Hz
+    spectral_peak                    0.50 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.6261
+    lzc                            1.0986
+
+  CENTRAL (C3, Cz, C4):
+    theta_alpha_ratio              0.6600
+    theta_relative_power           0.0615
+    alpha_relative_power           0.0985
+    spectral_centroid                3.16 Hz
+    spectral_peak                    0.50 Hz
+    iaf                               nan Hz
+    pdf                          100.0000
+    spectral_entropy               0.5536
+    lzc                            1.0664
+
+Posterior alpha coherence: 0.3277
+
+--- TEMPORAL CONSISTENCY ---
+Segments with any AD-like pattern: 0/1 (0%)
+Persistently flagged features (≥25% of segments AND recording avg abnormal): 0
+  No persistent AD-associated abnormalities detected.
+
+--- AD INDICATOR SUMMARY ---
+  No reference ranges provided, or all features within healthy reference ranges.
